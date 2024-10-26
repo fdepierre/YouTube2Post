@@ -1,5 +1,6 @@
 # local tmp dir
 work
+tmp
 
 *.code-workspace
 

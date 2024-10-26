@@ -5,64 +5,125 @@ import argparse
 import ollama
 import re
 import sys
+import json
 
 
+class ConfigError(Exception):
+    pass
+
+def read_config(parameter):
+    
+    config_file_path = 'config.json'
+     
+    try:
+        with open(config_file_path, 'r') as config_file:
+            config = json.load(config_file)
+    except FileNotFoundError:
+        raise ConfigError(f"Config file '{config_file_path}' not found.")
+    
+    if parameter is not None:
+        if parameter not in config:
+            raise ConfigError(f"Parameter '{parameter}' not found in configuration.")
+        tmp = config[parameter]
+        return tmp
+    
+    raise ConfigError("No parameter specified.")
+
+def create_working_dir():
+    
+    try:
+        tmp_directory = read_config('tmp_directory')
+        work_directory = read_config('work_directory')
+    except ConfigError as e:
+        print(e)
+
+    os.makedirs(tmp_directory, exist_ok=True)
+    os.makedirs(work_directory, exist_ok=True)
+
+    # Clear tmp directory
+    for file in os.listdir(tmp_directory):
+        file_path = os.path.join(tmp_directory, file)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+            
+    return tmp_directory, work_directory
 
 def download_audio(youtube_url):
-    # Specify the directory to save the audio files
-    save_directory = 'work'
-    os.makedirs(save_directory, exist_ok=True)  # Create directory if it doesn't exist
     
-    # Download the audio from the YouTube video with overwrite option
+    tmp_directory, work_directory = create_working_dir()
+    
+    # Download audio and metadata
     result = subprocess.run(
-        ['yt-dlp', '-x', '--audio-format', 'mp3', '--force-overwrites',
-         '-o', f'{save_directory}/%(title)s.%(ext)s', '--verbose', youtube_url], 
-        capture_output=True, text=True)
+        ['yt-dlp', '-x', '--audio-format', 'mp3', '--write-info-json',
+         '-o', f'{tmp_directory}/%(title)s.%(ext)s', youtube_url],
+        check=True
+    )
     
-    # Extract the audio file name from the output
-    audio_file = None
-    for line in result.stdout.split('\n'):
-        if line.startswith('[ExtractAudio] Destination:'):
-            audio_file = line.split(': ')[-1].strip()
-            break
-    
-    if not audio_file:
-        raise Exception(f"Unable to find the downloaded audio file in directory: {os.path.abspath(save_directory)}")
-    
-    # Simplify the filename
-    simple_name = re.sub(r'\W+', '_', os.path.splitext(os.path.basename(audio_file))[0])  # Replace non-alphanumeric characters with underscores
-    simple_name = simple_name[:50]  # Optionally limit length to 50 characters
-    simple_audio_file = f"{save_directory}/{simple_name}.mp3"
-    
-    # Rename the file if necessary (only if names differ)
-    if audio_file != simple_audio_file:
-        os.rename(audio_file, simple_audio_file)
-    
-    return simple_audio_file
+    # Find downloaded files
+    for file in os.listdir(tmp_directory):
+        if file.endswith('.mp3'):
+            audio_file = os.path.join(tmp_directory, file)
+        elif file.endswith('.json'):
+            json_file = os.path.join(tmp_directory, file)
+
+    return audio_file, json_file
 
 def transcribe_audio(audio_file):
-    # Load the Whisper model
     model = whisper.load_model("base")
-    
-    # Transcribe the audio file
     result = model.transcribe(audio_file)
- 
-    # Save the transcription to a text file
-    with open(f"{audio_file}.txt", "w") as f:
+    
+    transcript_file = f"{audio_file}.txt"
+    with open(transcript_file, "w") as f:
         f.write(result['text'])
         
-    return f"{audio_file}.txt"
+    return transcript_file
 
-def extract_main_ideas_from_transcript(transcript_file):
-    # Read the transcript file and extract main ideas using AI
-    return call_ia("Please extract the main ideas from the following Youtube video transcript:", transcript_file)
+def extract_metadata(json_file):
+    with open(json_file, 'r') as f:
+        data = json.load(f)
+    
+    title = data.get('title', 'Unknown Title')
+    author = data.get('uploader', 'Unknown Author')
+    description = data.get('description', 'No Description')
+    
+    return title, author, description
 
-
-def check_ollama_running():
+def create_transcript_content(youtube_url):
+    
+    audio_file, json_file = download_audio(youtube_url)
+     
+    title, author, description = extract_metadata(json_file)
+    
+    transcript_file = transcribe_audio(audio_file)
+    
+    with open(transcript_file, 'r') as f:
+        transcript_content = f.read()
+    
+    full_content = (
+        f"The following YouTube transcript is \"{title}\" from {youtube_url}\n"
+        f"The author is: {author}\n"
+        f"The video description is: {description}\n\n"
+        "The following text is the transcript of the video:\n"
+        f"{transcript_content}"
+    )
+    
+    try:
+        work_directory = read_config('work_directory')
+    except ConfigError as e:
+        print(e)
+    
+    full_content_file = os.path.join(f"{work_directory}/{title}_summary.txt")
+    
+    with open(full_content_file, 'w') as f:
+        f.write(full_content)
+    
+    return full_content_file
+ 
+def check_ollama_running(model):
     try:
         # Attempt a simple chat interaction to see if Ollama is responsive
         response = ollama.chat(
-            model='llama3.2',
+            model=model,
             messages=[
                 {'role': 'user', 'content': 'Hello'}
             ]
@@ -74,9 +135,10 @@ def check_ollama_running():
         print(f"Error checking Ollama: {e}")
         return False
 
-def call_ia(prompt, transcript_file):
+def call_ia(prompt, transcript_file, model):
+    
     # Check if Ollama is running
-    if not check_ollama_running():
+    if not check_ollama_running(model):
         raise Exception('Ollama service is not running. Please start Ollama.')
 
     # Open and read the content of the transcript file
@@ -85,7 +147,7 @@ def call_ia(prompt, transcript_file):
 
     # Call Ollama to extract main ideas using the llama3.2 model
     response = ollama.chat(
-        model='llama3.2',
+        model=model,
         messages=[
             {'role': 'user', 'content': f'{prompt} {transcript_content}'}
         ]
@@ -95,21 +157,54 @@ def call_ia(prompt, transcript_file):
     main_ideas = response['message']['content']
     return main_ideas
 
+# Interactive chat function with history
+def interactive_chat_with_history(transcript_file, model):
 
-def create_linkedin_post(transcript_file):
-    # Prompt for creating a LinkedIn post based on the transcript
-    pre_prompt = "Create a LinkedIn post (maximum 1000 characters) expressing appreciation for this video. Highlight its importance in understanding our society's future. Emphasize aspects that demonstrate a move towards modernity, human equality, respect for nature, and a low-carbon society."
-    
-    return call_ia(pre_prompt, transcript_file)
+    print('transcript_file: '+transcript_file)
 
-def full_linkedin_post(youtube_url):
+    # Check if Ollama is running
+    if not check_ollama_running(model):
+        raise Exception('Ollama service is not running. Please start Ollama.')
+
+    chat_history = []
+
+    # Read the transcript file and add it to the history
+    with open(transcript_file, 'r') as file:
+        transcript_content = file.read()
+        chat_history.append({'role': 'system', 'content': transcript_content})
+
+    print("Type 'exit' to end the chat.")
+
+    while True:
+        user_input = input("User: ")
+        if user_input.lower() == "exit":
+            print("Chatbot: Goodbye!")
+            break
+
+        # Add user's message to the history
+        chat_history.append({'role': 'user', 'content': user_input})
+
+        # Send request to the AI with the entire history
+        response = ollama.chat(
+            model=model,
+            messages=chat_history
+        )
+
+        ai_response = response['message']['content']
+        print("Chatbot:", ai_response)
+
+        # Add AI's response to the history
+        chat_history.append({'role': 'assistant', 'content': ai_response})
+
+
+def talk_2youtube_video(youtube_url, model):
     # Execute full process: download, transcribe, and create a LinkedIn post
-    audio_file = download_audio(youtube_url)
-    transcript_file = transcribe_audio(audio_file)
     
-    linkedin_post = create_linkedin_post(transcript_file)
+    full_content_file = create_transcript_content(youtube_url)
+     
+    full_chat = interactive_chat_with_history(full_content_file, model) 
     
-    return linkedin_post
+    return full_chat
  
 
 def main():
@@ -118,46 +213,40 @@ def main():
 
     # Create mutually exclusive group
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('-d', '--download', help='Download the audio from a YouTube video URL', action='store_true')
-    group.add_argument('-t', '--transcribe', help='Transcribe the audio file to text.', action='store_true')
-    group.add_argument('-i', '--ideas', help='Get main ideas from the text', action='store_true')
-    group.add_argument('-l', '--linkedin', help='Generate LinkedIn post regarding ethics values from a text', action='store_true')
-    group.add_argument('-f', '--fullpost', help='Generate LinkedIn post from a YouTube video URL', action='store_true')
+    group.add_argument('-t', '--transcribe', help='Download and transcribe the youtube video', action='store_true')
+    group.add_argument('-c', '--chat', help='Chat with AI based on the transcript.', action='store_true')
+    group.add_argument('-f', '--full', help='Download, transcrit and Chat with AI.', action='store_true')
 
     # Arguments for URL and input file
     parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing.', nargs='?')
 
-    args = parser.parse_args()
-
+    args = parser.parse_args() 
+    
+    try:
+        model = read_config('model')
+    except ConfigError as e:
+        print(e)
+    
     # Check if no mutually exclusive argument is provided
-    if not (args.download or args.transcribe or args.ideas or args.linkedin or args.fullpost):
+    if not (args.transcribe or args.chat or args.full):
         parser.print_help()
         sys.exit(1)
 
-    if args.download:
-        print(f"download input is: {args.url_or_input}") 
-        title = download_audio(args.url_or_input)
-        print(f"Audio downloaded. Video title: {title}")
-
-    elif args.transcribe:
+    if args.transcribe:
         print(f"transcribe input is: {args.url_or_input}") 
-        transcript_file = transcribe_audio(args.url_or_input)
+        transcript_file = create_transcript_content(args.url_or_input)
         print(f"Audio transcribed. Transcript saved to: {transcript_file}")
 
-    elif args.ideas:
-        print(f"idea input is: {args.url_or_input}") 
-        ideas = extract_main_ideas_from_transcript(args.url_or_input)
-        print(f"Ideas extracted: {ideas}")
+    elif args.chat:
+        print(f"chat input is: {args.url_or_input}") 
+        chat = interactive_chat_with_history(args.url_or_input, model)
+        print(f"Your chat: {chat}")   
+    
+    elif args.full:
+        print(f"Full talk input is: {args.url_or_input}") 
+        chat = talk_2youtube_video(args.url_or_input, model)
+        print(f"You full chat: {chat}")
 
-    elif args.linkedin:
-        print(f"linkedin input is: {args.url_or_input}") 
-        linkedin_post = create_linkedin_post(args.url_or_input)
-        print(f"LinkedIn post created: {linkedin_post}")
-        
-    elif args.fullpost:
-        print(f"fullpost input is: {args.url_or_input}") 
-        linkedin_post = full_linkedin_post(args.url_or_input)
-        print(f"LinkedIn post from youtube URL: {linkedin_post}")
 
 if __name__ == '__main__':
     main()
