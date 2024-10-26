@@ -1,0 +1,5 @@
+{
+    "model": "llama3.2",
+    "tmp_directory": "tmp",
+    "work_directory": "work"
+}
