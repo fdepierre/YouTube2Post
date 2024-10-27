@@ -14,7 +14,7 @@ This project provides a tool to download, transcribe YouTube videos, and interac
 
    ```bash
    git clone https://github.com/fdepierre/YouTube2Post.git
-   cd yourproject
+   cd YouTube2Post
 
 
 2. **Install the required packages:**
@@ -95,4 +95,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ```
 
-This version includes instructions for setting up and running Ollama on your local machine, ensuring users understand how to start the service and use the specified model version from the configuration file.
