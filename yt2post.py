@@ -23,7 +23,13 @@ def main():
         model_name = config_manager.read_config('model')
 
         directory_manager = DirectoryManager(tmp_directory=tmp_dir, work_directory=work_dir)
-        youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir)
+        
+        try:
+            youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir)
+        except (ImportError, RuntimeError) as e:
+            print(f"\nDependency Error: {str(e)}")
+            sys.exit(1)
+            
         transcriber = Transcriber(work_directory=work_dir)
         chatbot = Chatbot(model=model_name)
 
@@ -33,20 +39,33 @@ def main():
             sys.exit(1) 
         
         elif args.transcribe:
-            audio_file, json_file = youtube_downloader.download_audio(args.url_or_input)
-            transcript_file = transcriber.create_transcript_content(audio_file, json_file, args.url_or_input)
-            print(f"Transcript saved to: {transcript_file}")
+            try:
+                audio_file, json_file = youtube_downloader.download_audio(args.url_or_input)
+                transcript_file = transcriber.create_transcript_content(audio_file, json_file, args.url_or_input)
+                print(f"Transcript saved to: {transcript_file}")
+            except Exception as e:
+                print(f"\nError during transcription process: {str(e)}")
+                sys.exit(1)
 
         elif args.chat:
-            chatbot.interactive_chat(args.url_or_input)
+            try:
+                chatbot.interactive_chat(args.url_or_input)
+            except Exception as e:
+                print(f"\nError during chat process: {str(e)}")
+                sys.exit(1)
 
         elif args.full:
-            audio_file, json_file = youtube_downloader.download_audio(args.url_or_input)
-            transcript_file = transcriber.create_transcript_content(audio_file, json_file, args.url_or_input)
-            chatbot.interactive_chat(transcript_file)
+            try:
+                audio_file, json_file = youtube_downloader.download_audio(args.url_or_input)
+                transcript_file = transcriber.create_transcript_content(audio_file, json_file, args.url_or_input)
+                chatbot.interactive_chat(transcript_file)
+            except Exception as e:
+                print(f"\nError during full process: {str(e)}")
+                sys.exit(1)
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"\nAn unexpected error occurred: {str(e)}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()

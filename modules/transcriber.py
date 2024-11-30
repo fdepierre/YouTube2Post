@@ -29,7 +29,7 @@ class Transcriber:
             transcript_content = f.read()
 
         full_content = (
-            f"The following YouTube transcript is \"{title}\" from {youtube_url}\n"
+            f"The following text is the transcript of a YouTube video. The video title is \"{title}\" from {youtube_url}\n"
             f"The author is: {author}\n"
             f"The video description is: {description}\n\n"
             f"The following text is the transcript of the video:\n\n"
