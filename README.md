@@ -75,6 +75,35 @@ Ensure you have a `config.json` file in the root directory with the following st
 }
 ```
 
+## Testing and Test Coverage
+
+The project includes a comprehensive test suite to ensure code quality and reliability. Tests are written using `pytest` and include unit tests for core functionalities.
+
+### Running Tests
+
+To run the test suite:
+
+```bash
+# Run all tests
+pytest
+
+# Run tests with coverage report
+pytest --cov=modules tests/
+
+# Generate HTML coverage report
+pytest --cov=modules --cov-report=html tests/
+```
+
+The coverage report will be generated in the `htmlcov` directory. Open `htmlcov/index.html` in your browser to view the detailed coverage report.
+
+### Test Structure
+
+Tests are organized in the `tests` directory and follow the same structure as the main codebase. Each module has its corresponding test file prefixed with `test_`.
+
+For example:
+- `test_chat.py` - Tests for chat functionality
+- `test_transcribe.py` - Tests for transcription functionality
+
 ## Contributing
 
 1. Fork the repository.
@@ -92,6 +121,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) for downloading YouTube content.
 - [Whisper](https://github.com/openai/whisper) for audio transcription.
 - [Ollama](https://ollama.com/) for AI chatbot interactions.
-
-```
-
