@@ -6,12 +6,21 @@ class Chatbot:
 
     def check_ollama_running(self):
         try:
+            # Check if Ollama service is running
             response = ollama.chat(
                 model=self.model,
                 messages=[{'role': 'user', 'content': 'Hello'}]
             )
-            return 'message' in response and 'content' in response['message']
-        except Exception:
+            
+            # Verify response format
+            if not ('message' in response and 'content' in response['message']):
+                return False
+                
+            return True
+
+        except Exception as e:
+            if "no such model" in str(e).lower():
+                raise Exception(f"Model {self.model} is not available. Please check your config.json and make sure it matches an available Ollama model.")
             return False
 
     def interactive_chat(self, transcript_file):

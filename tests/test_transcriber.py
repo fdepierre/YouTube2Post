@@ -26,6 +26,7 @@ class TestTranscriber(unittest.TestCase):
     def test_transcribe_audio(self, mock_load_model):
         # Mock whisper model
         mock_model = MagicMock()
+        mock_model.to = MagicMock(return_value=mock_model)
         mock_model.transcribe.return_value = {'text': self.sample_transcript}
         mock_load_model.return_value = mock_model
 

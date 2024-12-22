@@ -2,18 +2,28 @@ import json
 import whisper
 import os
 import re
+import torch
 
 class Transcriber:
     def __init__(self, model_name='base', work_directory='.'):
         self.model_name = model_name
         self.work_directory = work_directory
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"Using device: {self.device}")
 
     def transcribe_audio(self, audio_file):
-        self.model = whisper.load_model(self.model_name)
+        self.model = whisper.load_model(self.model_name).to(self.device)
         result = self.model.transcribe(audio_file)
         transcript_file = f"{audio_file}.txt"
+        
+        # Handle the result from whisper model
+        if isinstance(result, dict) and 'text' in result:
+            text = result['text']
+        else:
+            text = str(result)
+        
         with open(transcript_file, "w") as f:
-            f.write(result['text'])
+            f.write(text)
         return transcript_file
 
     def create_transcript_content(self, audio_file, json_file, youtube_url):

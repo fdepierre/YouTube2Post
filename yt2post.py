@@ -30,7 +30,6 @@ def main():
             print(f"\nDependency Error: {str(e)}")
             sys.exit(1)
             
-        transcriber = Transcriber(work_directory=work_dir)
         chatbot = Chatbot(model=model_name)
 
         # Check if no mutually exclusive argument is provided
@@ -40,6 +39,7 @@ def main():
         
         elif args.transcribe:
             try:
+                transcriber = Transcriber(work_directory=work_dir)
                 audio_file, json_file = youtube_downloader.download_audio(args.url_or_input)
                 transcript_file = transcriber.create_transcript_content(audio_file, json_file, args.url_or_input)
                 print(f"Transcript saved to: {transcript_file}")
@@ -56,6 +56,7 @@ def main():
 
         elif args.full:
             try:
+                transcriber = Transcriber(work_directory=work_dir)
                 audio_file, json_file = youtube_downloader.download_audio(args.url_or_input)
                 transcript_file = transcriber.create_transcript_content(audio_file, json_file, args.url_or_input)
                 chatbot.interactive_chat(transcript_file)
