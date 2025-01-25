@@ -1,28 +1,29 @@
 import json
-import whisper
 import os
 import re
 import torch
+from faster_whisper import WhisperModel
 
 class Transcriber:
     def __init__(self, model_name='base', work_directory='.'):
         self.model_name = model_name
         self.work_directory = work_directory
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        print(f"Using device: {self.device}")
+        # Force CPU usage
+        self.device = 'cpu'
+        self.compute_type = "int8"
+        print(f"Using device: {self.device} (forced to avoid CUDA issues)")
+        # Initialize the model in constructor
+        self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
 
     def transcribe_audio(self, audio_file):
-        self.model = whisper.load_model(self.model_name).to(self.device)
-        result = self.model.transcribe(audio_file)
+        # Transcribe the audio
+        segments, _ = self.model.transcribe(audio_file)
         transcript_file = f"{audio_file}.txt"
         
-        # Handle the result from whisper model
-        if isinstance(result, dict) and 'text' in result:
-            text = result['text']
-        else:
-            text = str(result)
+        # Combine all segments into one text
+        text = " ".join([segment.text for segment in segments])
         
-        with open(transcript_file, "w") as f:
+        with open(transcript_file, "w", encoding='utf-8') as f:
             f.write(text)
         return transcript_file
 

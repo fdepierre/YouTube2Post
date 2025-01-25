@@ -1,5 +1,6 @@
 import argparse
 import sys
+import argcomplete
 
 from modules.config_manager import ConfigManager
 from modules.directory_manager import DirectoryManager
@@ -14,6 +15,7 @@ def main():
     parser.add_argument('-f', '--full', help='Download, transcribe, and chat with AI.', action='store_true')
     parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing.', nargs='?')
 
+    argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
     try:
