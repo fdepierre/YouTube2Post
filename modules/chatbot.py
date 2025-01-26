@@ -87,7 +87,8 @@ class Chatbot:
         # Start interactive chat loop
         while True:
             user_input = input("User: ")
-            if user_input.lower() == "exit":
+            # Check for various exit commands
+            if user_input.lower() in ["exit", "quit", "bye", "/bye"]:
                 print("Chatbot: Goodbye!")
                 break
             
