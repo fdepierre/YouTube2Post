@@ -1,3 +1,17 @@
+#!/usr/bin/env python3
+"""
+YouTube to Post Converter
+------------------------
+This script downloads YouTube videos, transcribes them, and enables AI-powered chat interactions
+based on the video content. It supports three main operations:
+- Transcription only: Downloads and transcribes a YouTube video
+- Chat only: Initiates a chat session based on an existing transcript
+- Full process: Combines both operations (download, transcribe, and chat)
+
+Usage:
+    python yt2post.py [-t|--transcribe] [-c|--chat] [-f|--full] <youtube_url_or_input_file>
+"""
+
 import argparse
 import sys
 import argcomplete
@@ -9,6 +23,7 @@ from modules.transcriber import Transcriber
 from modules.chatbot import Chatbot
 
 def main():
+    # Initialize argument parser with program description
     parser = argparse.ArgumentParser(description='Process YouTube videos and interact with AI.')
     parser.add_argument('-t', '--transcribe', help='Download and transcribe the YouTube video', action='store_true')
     parser.add_argument('-c', '--chat', help='Chat with AI based on the transcript.', action='store_true')
@@ -19,6 +34,7 @@ def main():
     args = parser.parse_args()
 
     try:
+        # Initialize configuration and required components
         config_manager = ConfigManager()
         tmp_dir = config_manager.read_config('tmp_directory')
         work_dir = config_manager.read_config('work_directory')
@@ -26,6 +42,7 @@ def main():
 
         directory_manager = DirectoryManager(tmp_directory=tmp_dir, work_directory=work_dir)
         
+        # Initialize YouTube downloader with error handling
         try:
             youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir)
         except (ImportError, RuntimeError) as e:
@@ -34,11 +51,12 @@ def main():
             
         chatbot = Chatbot(model=model_name)
 
-        # Check if no mutually exclusive argument is provided
+        # Validate command-line arguments
         if not (args.transcribe or args.chat or args.full):
             parser.print_help()
             sys.exit(1) 
         
+        # Handle transcription-only mode
         elif args.transcribe:
             try:
                 transcriber = Transcriber(work_directory=work_dir)
@@ -49,6 +67,7 @@ def main():
                 print(f"\nError during transcription process: {str(e)}")
                 sys.exit(1)
 
+        # Handle chat-only mode
         elif args.chat:
             try:
                 chatbot.interactive_chat(args.url_or_input)
@@ -56,6 +75,7 @@ def main():
                 print(f"\nError during chat process: {str(e)}")
                 sys.exit(1)
 
+        # Handle full process mode (download, transcribe, and chat)
         elif args.full:
             try:
                 transcriber = Transcriber(work_directory=work_dir)

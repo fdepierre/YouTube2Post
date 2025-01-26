@@ -1,3 +1,11 @@
+"""
+YouTube Downloader Module
+------------------------
+This module handles the downloading of YouTube videos using yt-dlp.
+It provides functionality to download videos and extract audio for transcription.
+The module includes error handling for missing dependencies and download failures.
+"""
+
 import os
 import shutil
 
@@ -9,11 +17,31 @@ except ImportError:
     )
 
 class YouTubeDownloader:
+    """
+    A class to handle YouTube video downloads and audio extraction.
+    
+    This class provides methods to download YouTube videos and extract their audio
+    content for transcription purposes. It includes error handling for missing
+    dependencies and ensures proper directory structure.
+    
+    Attributes:
+        tmp_directory (str): Directory for temporary storage of downloaded files
+    """
+
     def __init__(self, tmp_directory='tmp'):
+        """
+        Initialize the YouTubeDownloader with a temporary directory.
+        
+        Args:
+            tmp_directory (str): Path to temporary directory for downloads
+            
+        Raises:
+            RuntimeError: If FFmpeg is not found in system PATH
+        """
         self.tmp_directory = tmp_directory
         os.makedirs(self.tmp_directory, exist_ok=True)
         
-        # Check for FFmpeg availability
+        # Verify FFmpeg installation
         if not shutil.which('ffmpeg'):
             raise RuntimeError(
                 "FFmpeg is not found in system PATH. Please install FFmpeg:\n"
@@ -24,8 +52,21 @@ class YouTubeDownloader:
 
     def download_audio(self, youtube_url):
         """
-        Download audio and metadata from a YouTube video using yt-dlp.
+        Download audio from a YouTube video and extract metadata.
+        
+        This method downloads the best available audio quality from a YouTube video
+        and extracts it to MP3 format. It also saves video metadata in JSON format.
+        
+        Args:
+            youtube_url (str): URL of the YouTube video to download
+            
+        Returns:
+            tuple: Paths to the (audio_file, json_file)
+            
+        Raises:
+            Exception: If download fails or URL is invalid
         """
+        # Configure yt-dlp options for audio extraction
         ydl_opts = {
             'format': 'bestaudio/best',
             'postprocessors': [{
@@ -50,15 +91,16 @@ class YouTubeDownloader:
         except Exception as e:
             raise Exception(f'Unexpected error while downloading: {str(e)}')
 
+        # Find the downloaded files
         audio_file = None
         json_file = None
         for file in os.listdir(self.tmp_directory):
             if file.endswith('.mp3'):
                 audio_file = os.path.join(self.tmp_directory, file)
-            elif file.endswith('.json'):
+            elif file.endswith('.info.json'):
                 json_file = os.path.join(self.tmp_directory, file)
 
         if not audio_file or not json_file:
-            raise Exception('Could not find downloaded files. Please ensure you have write permissions in the temporary directory.')
-            
+            raise Exception('Failed to locate downloaded files')
+
         return audio_file, json_file
