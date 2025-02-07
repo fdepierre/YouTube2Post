@@ -1,14 +1,14 @@
 """
-Chatbot Module
+Ollama Manager Module
 -------------
-This module implements an interactive chatbot using the Ollama API.
+This module implements an interactive chat manager using the Ollama API.
 It provides functionality to have conversations with an AI model about
 the content of video transcripts.
 """
 
 import ollama
 
-class Chatbot:
+class OllamaManager:
     """
     A class to handle interactive chat sessions using Ollama models.
     
@@ -22,7 +22,7 @@ class Chatbot:
 
     def __init__(self, model):
         """
-        Initialize the Chatbot with a specific Ollama model.
+        Initialize the OllamaManager with a specific Ollama model.
         
         Args:
             model (str): Name of the Ollama model to use (e.g., 'deepseek-r1')
@@ -89,7 +89,7 @@ class Chatbot:
             user_input = input("User: ")
             # Check for various exit commands
             if user_input.lower() in ["exit", "quit", "bye", "/bye"]:
-                print("Chatbot: Goodbye!")
+                print("Assistant: Goodbye!")
                 break
             
             # Add user message to chat history
@@ -102,7 +102,7 @@ class Chatbot:
             )
             
             ai_response = response['message']['content']
-            print("Chatbot:", ai_response)
+            print("Assistant:", ai_response)
             
             # Add AI response to chat history
             chat_history.append({'role': 'assistant', 'content': ai_response})
