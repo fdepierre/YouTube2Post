@@ -6,7 +6,7 @@ It provides functionality to have conversations with an AI model about
 the content of video transcripts.
 """
 
-import ollama
+from ollama import Client
 
 class OllamaManager:
     """
@@ -14,20 +14,54 @@ class OllamaManager:
     
     This class provides methods to interact with Ollama AI models,
     enabling conversations about video transcript content. It includes
-    service availability checking and interactive chat functionality.
+    service availability checking, model management, and interactive chat functionality.
     
     Attributes:
         model (str): Name of the Ollama model to use for chat
     """
 
-    def __init__(self, model):
+    def __init__(self, model, host='http://localhost:11434'):
         """
         Initialize the OllamaManager with a specific Ollama model.
         
         Args:
             model (str): Name of the Ollama model to use (e.g., 'deepseek-r1')
+            host (str): Ollama API host URL (default: 'http://localhost:11434')
         """
         self.model = model
+        self.client = Client(host=host)
+        
+    def list_available_models(self):
+        """
+        List all available models in the Ollama installation.
+        
+        Returns:
+            list: A list of dictionaries containing model information
+                Each dictionary contains model details like name, size, modified_at
+                
+        Raises:
+            Exception: If unable to connect to Ollama service
+        """
+        try:
+            return self.client.list()
+        except Exception as e:
+            raise Exception(f'Failed to list models: {str(e)}')
+    
+    def list_running_models(self):
+        """
+        List all currently running model instances in Ollama.
+        
+        Returns:
+            list: A list of dictionaries containing running model information
+                Each dictionary contains details about the running model instance
+                
+        Raises:
+            Exception: If unable to connect to Ollama service
+        """
+        try:
+            return self.client.ps()
+        except Exception as e:
+            raise Exception(f'Failed to list running models: {str(e)}')
 
     def check_ollama_running(self):
         """
@@ -44,7 +78,7 @@ class OllamaManager:
         """
         try:
             # Check if Ollama service is running
-            response = ollama.chat(
+            response = self.client.chat(
                 model=self.model,
                 messages=[{'role': 'user', 'content': 'Hello'}]
             )
@@ -96,7 +130,7 @@ class OllamaManager:
             chat_history.append({'role': 'user', 'content': user_input})
             
             # Get AI response
-            response = ollama.chat(
+            response = self.client.chat(
                 model=self.model,
                 messages=chat_history
             )
