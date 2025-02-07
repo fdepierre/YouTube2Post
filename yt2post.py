@@ -28,6 +28,7 @@ def main():
     parser.add_argument('-t', '--transcribe', help='Download and transcribe the YouTube video', action='store_true')
     parser.add_argument('-c', '--chat', help='Chat with AI based on the transcript.', action='store_true')
     parser.add_argument('-f', '--full', help='Download, transcribe, and chat with AI.', action='store_true')
+    parser.add_argument('-m', '--model-select', help='Select from running models instead of using config file model', action='store_true')
     parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing.', nargs='?')
 
     argcomplete.autocomplete(parser)
@@ -38,9 +39,17 @@ def main():
         config_manager = ConfigManager()
         tmp_dir = config_manager.read_config('tmp_directory')
         work_dir = config_manager.read_config('work_directory')
-        model_name = config_manager.read_config('model')
-
         directory_manager = DirectoryManager(tmp_directory=tmp_dir, work_directory=work_dir)
+        
+        # Handle model selection
+        if args.model_select:
+            try:
+                model_name = OllamaManager().select_model(use_running=True)
+            except Exception as e:
+                print(str(e))
+                sys.exit(1)
+        else:
+            model_name = config_manager.read_config('model')
         
         # Initialize YouTube downloader with error handling
         try:
