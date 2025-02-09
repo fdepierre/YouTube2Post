@@ -1,32 +1,52 @@
 """
 Ollama Manager Module
 -------------
-This module implements an interactive chat manager using the Ollama API.
-It provides functionality to have conversations with an AI model about
-the content of video transcripts.
+This module implements a comprehensive manager for interacting with Ollama AI models.
+It provides functionality for:
+- Model management (listing, selecting, and verifying models)
+- Interactive chat sessions with AI models about video transcripts
+- Runtime model selection from available or running instances
+- Error handling and graceful session management
+
+The module is designed to be both user-friendly for interactive use and
+robust for programmatic integration.
 """
 
 from ollama import Client
 
 class OllamaManager:
     """
-    A class to handle interactive chat sessions using Ollama models.
+    A class to manage Ollama AI models and facilitate interactive chat sessions.
     
-    This class provides methods to interact with Ollama AI models,
-    enabling conversations about video transcript content. It includes
-    service availability checking, model management, and interactive chat functionality.
+    This class provides comprehensive functionality for working with Ollama models,
+    including:
+    - Model discovery and selection (both available and running models)
+    - Interactive chat sessions with proper error handling
+    - Service availability verification
+    - Runtime model switching capabilities
+    
+    The class is designed to handle various edge cases and provide a smooth
+    user experience, whether used interactively or programmatically.
     
     Attributes:
-        model (str): Name of the Ollama model to use for chat
+        model (str, optional): Name of the Ollama model to use for chat.
+            Can be set during initialization or selected at runtime.
+        client (ollama.Client): Client instance for communicating with the Ollama service.
     """
 
     def __init__(self, model=None, host='http://localhost:11434'):
         """
-        Initialize the OllamaManager with a specific Ollama model.
+        Initialize the OllamaManager with an optional model specification.
+        
+        The model can be specified during initialization or selected later using
+        the select_model method. This flexibility allows for runtime model selection
+        based on available or running models.
         
         Args:
-            model (str, optional): Name of the Ollama model to use (e.g., 'deepseek-r1')
-            host (str): Ollama API host URL (default: 'http://localhost:11434')
+            model (str, optional): Name of the Ollama model to use (e.g., 'deepseek-r1').
+                If None, a model must be selected before starting a chat session.
+            host (str): Ollama API host URL (default: 'http://localhost:11434').
+                Should include the protocol (http/https) and port number.
         """
         self.model = model
         self.client = Client(host=host)
@@ -35,11 +55,17 @@ class OllamaManager:
         """
         List all available models in the Ollama installation.
         
+        This method queries the Ollama service for all installed models,
+        regardless of whether they are currently running. The returned
+        model names can be used with 'ollama run' to start a model.
+        
         Returns:
-            list: A list of model names
+            list[str]: A list of model names without version tags
+                (e.g., ['llama2', 'deepseek-r1', 'phi4'])
                 
         Raises:
-            Exception: If unable to connect to Ollama service
+            Exception: If unable to connect to Ollama service or if the
+                service returns an unexpected response format
         """
         try:
             result = self.client.list()
@@ -53,11 +79,17 @@ class OllamaManager:
         """
         List all currently running model instances in Ollama.
         
+        This method queries the Ollama service for models that are currently
+        running and available for immediate use. Running models can be used
+        directly without needing to start them first.
+        
         Returns:
-            list: A list of model names that are currently running
+            list[str]: A list of model names that are currently running,
+                without version tags (e.g., ['llama2', 'deepseek-r1'])
                 
         Raises:
-            Exception: If unable to connect to Ollama service
+            Exception: If unable to connect to Ollama service or if the
+                service returns an unexpected response format
         """
         try:
             result = self.client.ps()
@@ -71,14 +103,26 @@ class OllamaManager:
         """
         Select a model to use, either from running models or available models.
         
+        This method provides an interactive interface for selecting an Ollama model.
+        If use_running is True, it first attempts to select from currently running
+        models. If no running models are found or if the user chooses not to use
+        a running model, it shows available models that can be started.
+        
+        The selection process handles various scenarios:
+        - Single running model: User can press Enter to use it or type 'no' to see alternatives
+        - Multiple running models: User can select by number or type 'no' to see alternatives
+        - No running models: Shows available models that can be started
+        
         Args:
-            use_running (bool): If True, try to select from running models first
+            use_running (bool): If True, try to select from running models first.
+                If False or if no running models are selected, show available models.
             
         Returns:
-            str: Selected model name
+            str: Name of the selected model without version tag
             
         Raises:
-            Exception: If no models are available or if user cancels selection
+            Exception: If no models are available, if user cancels selection,
+                or if there are connection issues with the Ollama service
         """
         if use_running:
             running_models = self.list_running_models()
@@ -120,8 +164,15 @@ class OllamaManager:
         """
         Show available models and prompt user to start one.
         
+        This internal helper method displays a list of all available models
+        and provides instructions for starting them using the 'ollama run'
+        command. It's typically called when no running models are available
+        or when the user chooses not to use a running model.
+        
         Raises:
-            Exception: Always raises an exception with instructions
+            Exception: Always raises an exception with instructions for starting
+                a model using 'ollama run'. This is part of the expected flow
+                when a model needs to be started.
         """
         available_models = self.list_available_models()
         print("\nAvailable models:")
@@ -134,14 +185,22 @@ class OllamaManager:
         """
         Check if the Ollama service is running and the model is available.
         
-        This method attempts to send a test message to verify both service
-        availability and model existence.
+        This method performs a comprehensive check by:
+        1. Attempting to connect to the Ollama service
+        2. Verifying that the specified model exists and is accessible
+        3. Ensuring the model can process basic requests
+        
+        The check is performed by sending a simple test message ('Hello')
+        and verifying the response format.
         
         Returns:
-            bool: True if Ollama is running and model is available, False otherwise
+            bool: True if both the Ollama service is running and the specified
+                model is available and responsive. False if the service is down
+                or unresponsive.
             
         Raises:
-            Exception: If the specified model is not available in Ollama
+            Exception: If the specified model is not available in Ollama,
+                with a helpful message suggesting to check the config.json
         """
         try:
             # Check if Ollama service is running
@@ -165,15 +224,26 @@ class OllamaManager:
         """
         Start an interactive chat session about a video transcript.
         
-        This method initiates a chat session where users can ask questions
-        about the content of a video transcript. The session continues until
-        the user types 'exit'.
+        This method provides a robust interactive chat interface where users can
+        discuss the content of a video transcript with the AI model. The session
+        includes:
+        - Proper handling of empty inputs and interrupts
+        - Clear session start/end messages
+        - Multiple exit commands ('exit', 'quit', 'bye', '/bye')
+        - Graceful error handling with helpful messages
+        
+        The chat maintains a conversation history to provide context for the
+        AI model's responses. The transcript content is provided as initial
+        system context.
         
         Args:
-            transcript_file (str): Path to the transcript file to discuss
+            transcript_file (str): Path to the transcript file to discuss.
+                The file should be readable and contain the transcript text.
             
         Raises:
-            Exception: If Ollama service is not running
+            Exception: If the Ollama service is not running, if the model
+                is not available, or if there are issues reading the transcript file.
+                All exceptions include helpful error messages for resolution.
         """
         if not self.check_ollama_running():
             raise Exception('Ollama service is not running. Please start Ollama.')

@@ -1,12 +1,19 @@
 # YouTube Video Transcription and Chatbot
 
-This project provides a tool to download, transcribe YouTube videos, and interact with an AI chatbot based on the transcriptions. It leverages `yt-dlp` for downloading audio, `whisper` for transcription, and `ollama` for AI interactions.
+This project provides a comprehensive tool for processing YouTube videos and engaging in AI-powered discussions about their content. It combines video downloading, audio transcription, and interactive AI chat capabilities using state-of-the-art open-source tools.
 
 ## Features
 
-- Download audio from YouTube videos.
-- Transcribe audio to text using Whisper.
-- Engage in interactive chat sessions with AI based on video transcripts.
+### Core Functionality
+- Download audio from YouTube videos using `yt-dlp`
+- Transcribe audio to text using OpenAI's `whisper`
+- Engage in interactive chat sessions about video content using `ollama` AI models
+
+### Advanced Features
+- Runtime model selection from available or running Ollama models
+- Smart handling of model availability and startup
+- Robust error handling and graceful session management
+- Support for multiple exit commands and interrupt handling
 
 ## Installation
 
@@ -43,45 +50,58 @@ This project provides a tool to download, transcribe YouTube videos, and interac
 
 ## Usage
 
-You can use this tool via command-line interface:
+The tool provides several command-line options for different workflows:
 
-- **Transcribe a YouTube video:**
+### Basic Operations
 
-  ```bash
-  python yt2post.py -t <YouTube_URL>
-  ```
+```bash
+# Transcribe a YouTube video
+python yt2post.py -t <YouTube_URL>
 
-- **Chat based on a transcript file:**
+# Chat about an existing transcript
+python yt2post.py -c <transcript_file>
 
-  ```bash
-  python yt2post.py -c <transcript_file>
-  ```
+# Full process: download, transcribe, and chat
+python yt2post.py -f <YouTube_URL>
+```
 
-- **Full process (download, transcribe, chat):**
+### Model Selection
 
-  ```bash
-  python yt2post.py -f <YouTube_URL>
-  ```
+```bash
+# Use model selection interface
+python yt2post.py -m -c <transcript_file>
+```
+
+When using the `-m` option:
+- If models are running, you can select one directly
+- If no models are running, available models will be listed
+- Press Enter to use a single running model, or type 'no' to see alternatives
+- Type 'exit' during chat to end the session
 
 ## Configuration
 
-Ensure you have a `config.json` file in the root directory with the following structure:
+### Basic Configuration
+Create a `config.json` file in the root directory:
 
 ```json
 {
     "tmp_directory": "path/to/tmp",
     "work_directory": "path/to/work",
-    "model": "llama3.2"
+    "model": "llama3.2"  // Default model, can be overridden with -m option
 }
 ```
 
-## Testing and Test Coverage
+### Model Configuration
+- The `model` in `config.json` specifies the default model
+- Use the `-m` option to override this and select a model at runtime
+- Available models can be listed using `ollama list`
+- Running models can be viewed using `ollama ps`
 
-The project includes a comprehensive test suite to ensure code quality and reliability. Tests are written using `pytest` and include unit tests for core functionalities.
+## Development
 
-### Running Tests
+### Testing and Quality Assurance
 
-To run the test suite:
+The project maintains high code quality through comprehensive testing:
 
 ```bash
 # Run all tests
@@ -94,23 +114,33 @@ pytest --cov=modules tests/
 pytest --cov=modules --cov-report=html tests/
 ```
 
-The coverage report will be generated in the `htmlcov` directory. Open `htmlcov/index.html` in your browser to view the detailed coverage report.
+View the coverage report at `htmlcov/index.html`
 
-### Test Structure
+### Project Structure
 
-Tests are organized in the `tests` directory and follow the same structure as the main codebase. Each module has its corresponding test file prefixed with `test_`.
+```
+YouTube2Post/
+├── modules/                    # Core functionality modules
+│   ├── config_manager.py       # Configuration handling
+│   ├── directory_manager.py    # File and directory management
+│   ├── ollama_manager.py       # AI model interaction
+│   ├── transcriber.py          # Audio transcription
+│   └── youtube_downloader.py   # YouTube video processing
+├── tests/                      # Test suite
+├── config.json                # Configuration file
+├── requirements.txt           # Python dependencies
+└── yt2post.py                # Main script
+```
 
-For example:
-- `test_chat.py` - Tests for chat functionality
-- `test_transcribe.py` - Tests for transcription functionality
+### Contributing
 
-## Contributing
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
 
-1. Fork the repository.
-2. Create a new branch (`git checkout -b feature/YourFeature`).
-3. Commit your changes (`git commit -am 'Add new feature'`).
-4. Push to the branch (`git push origin feature/YourFeature`).
-5. Create a new Pull Request.
+Ensure your code follows the project's style and passes all tests.
 
 ## License
 
