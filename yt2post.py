@@ -22,13 +22,15 @@ from modules.youtube_downloader import YouTubeDownloader
 from modules.transcriber import Transcriber
 from modules.ollama_manager import OllamaManager
 
+
+
 def main():
     # Initialize argument parser with program description
     parser = argparse.ArgumentParser(description='Process YouTube videos and interact with AI.')
     parser.add_argument('-t', '--transcribe', help='Download and transcribe the YouTube video', action='store_true')
     parser.add_argument('-c', '--chat', help='Chat with AI based on the transcript.', action='store_true')
     parser.add_argument('-f', '--full', help='Download, transcribe, and chat with AI.', action='store_true')
-    parser.add_argument('-m', '--model-select', help='Select from running models instead of using config file model', action='store_true')
+    parser.add_argument('-m', '--model-select', help='Select from running models', action='store_true')
     parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing.', nargs='?')
 
     argcomplete.autocomplete(parser)
@@ -42,14 +44,18 @@ def main():
         directory_manager = DirectoryManager(tmp_directory=tmp_dir, work_directory=work_dir)
         
         # Handle model selection
-        if args.model_select:
-            try:
-                model_name = OllamaManager().select_model(use_running=True)
-            except Exception as e:
-                print(str(e))
-                sys.exit(1)
-        else:
-            model_name = config_manager.read_config('model')
+        ollama_manager = OllamaManager()
+        
+        try:
+            if args.model_select:
+                # Interactive mode with model selection
+                model_name = ollama_manager.select_model(use_running=True)
+            else:
+                # Non-interactive mode: auto-select first running model
+                model_name = ollama_manager.select_model(use_running=True, non_interactive=True)
+        except Exception as e:
+            print(str(e))
+            sys.exit(1)
         
         # Initialize YouTube downloader with error handling
         try:

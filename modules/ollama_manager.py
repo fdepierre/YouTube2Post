@@ -99,23 +99,24 @@ class OllamaManager:
         except Exception as e:
             raise Exception(f'Failed to list running models: {str(e)}')
             
-    def select_model(self, use_running=False):
+    def select_model(self, use_running=False, non_interactive=False):
         """
         Select a model to use, either from running models or available models.
         
-        This method provides an interactive interface for selecting an Ollama model.
+        This method provides an interface for selecting an Ollama model.
         If use_running is True, it first attempts to select from currently running
-        models. If no running models are found or if the user chooses not to use
-        a running model, it shows available models that can be started.
+        models. If no running models are found, it shows available models that can be started.
         
         The selection process handles various scenarios:
-        - Single running model: User can press Enter to use it or type 'no' to see alternatives
-        - Multiple running models: User can select by number or type 'no' to see alternatives
-        - No running models: Shows available models that can be started
+        - Single running model: User can press Enter to use it (auto-selected in non-interactive mode)
+        - Multiple running models: User can select by number (first model auto-selected in non-interactive mode)
+        - No running models: Shows available models that can be started and raises an exception
         
         Args:
             use_running (bool): If True, try to select from running models first.
                 If False or if no running models are selected, show available models.
+            non_interactive (bool): If True, automatically select the first running model
+                without user input. Raises an exception if no models are running.
             
         Returns:
             str: Name of the selected model without version tag
@@ -124,41 +125,72 @@ class OllamaManager:
             Exception: If no models are available, if user cancels selection,
                 or if there are connection issues with the Ollama service
         """
+        running_models = self.list_running_models()
+        
+        # If no running models, show error regardless of mode
+        if not running_models:
+            print("\nNo models are currently running. Available models:")
+            available_models = self.list_available_models()
+            for model in available_models:
+                print(f"- {model}")
+            print("\nPlease start one of these models using 'ollama run <model_name>' and try again.")
+            raise Exception("No running models available")
+        
+        # Non-interactive mode: auto-select first running model
+        if non_interactive:
+            return running_models[0]
+        
+        # Interactive mode with running models
         if use_running:
-            running_models = self.list_running_models()
-            if not running_models:
-                print("\nNo models are currently running. Available models:")
-                available_models = self.list_available_models()
-                for model in available_models:
-                    print(f"- {model}")
-                print("\nPlease start one of these models using 'ollama run <model_name>' and try again.")
-                raise Exception("No running models available")
-                
             print("\nRunning models:")
             for i, model in enumerate(running_models, 1):
-                print(f"{i}. {model}")
+                print(f"{i}. {model} (▲)")
                 
             if len(running_models) == 1:
-                print("\nOnly one model is running. Press Enter to use it, or type 'no' to list available models: ")
+                print("\nOnly one model is running. Press Enter to use it: ")
                 choice = input().strip().lower()
-                if choice == 'no':
-                    return self._show_available_models()
-                return running_models[0]
+                if not choice:  # User pressed Enter
+                    return running_models[0]
             
             while True:
-                print("\nEnter the number of the model to use, or type 'no' to list available models: ")
+                print("\nEnter the number of the model to use: ")
                 choice = input().strip().lower()
-                if choice == 'no':
-                    return self._show_available_models()
                 try:
                     choice_num = int(choice)
                     if 1 <= choice_num <= len(running_models):
                         return running_models[choice_num - 1]
                     print("Invalid selection. Please try again.")
                 except ValueError:
-                    print("Invalid input. Please enter a number or 'no'.")
+                    if not choice:  # User pressed Enter with multiple models
+                        return running_models[0]
+                    print("Invalid input. Please enter a number.")
         else:
-            return self._show_available_models()
+            # Show all available models (not just running ones)
+            available_models = self.list_available_models()
+            print("\nAvailable models:")
+            for i, model in enumerate(available_models, 1):
+                indicator = " (▲)" if model in running_models else ""
+                print(f"{i}. {model}{indicator}")
+                
+            while True:
+                print("\nEnter the number of the model to use: ")
+                choice = input().strip()
+                try:
+                    choice_num = int(choice)
+                    if 1 <= choice_num <= len(available_models):
+                        selected_model = available_models[choice_num - 1]
+                        if selected_model not in running_models:
+                            print(f"\nModel {selected_model} is not running. Please start it with 'ollama run {selected_model}' and try again.")
+                            raise Exception(f"Selected model {selected_model} is not running")
+                        return selected_model
+                    print("Invalid selection. Please try again.")
+                except ValueError:
+                    if not choice:  # User pressed Enter
+                        # Find first running model in the list
+                        for model in available_models:
+                            if model in running_models:
+                                return model
+                    print("Invalid input. Please enter a number.")
             
     def _show_available_models(self):
         """
@@ -166,8 +198,7 @@ class OllamaManager:
         
         This internal helper method displays a list of all available models
         and provides instructions for starting them using the 'ollama run'
-        command. It's typically called when no running models are available
-        or when the user chooses not to use a running model.
+        command. It's typically called when no running models are available.
         
         Raises:
             Exception: Always raises an exception with instructions for starting
@@ -175,11 +206,19 @@ class OllamaManager:
                 when a model needs to be started.
         """
         available_models = self.list_available_models()
+        running_models = self.list_running_models()
+        
         print("\nAvailable models:")
         for model in available_models:
-            print(f"- {model}")
-        print("\nPlease start one of these models using 'ollama run <model_name>' and try again.")
-        raise Exception("Please start a model first")
+            indicator = " (▲)" if model in running_models else ""
+            print(f"- {model}{indicator}")
+            
+        if not running_models:
+            print("\nPlease start one of these models using 'ollama run <model_name>' and try again.")
+            raise Exception("Please start a model first")
+        else:
+            print("\nOnly models marked with (▲) are currently running and available for use.")
+            raise Exception("Please select a running model")
 
     def check_ollama_running(self):
         """
@@ -256,7 +295,8 @@ class OllamaManager:
             # Initialize chat history with transcript as system context
             chat_history = [{'role': 'system', 'content': transcript_content}]
             
-            print("\nChat session started. Type 'exit' to end the session.\n")
+            # Display model badge with running indicator
+            print(f"\nChat session started with [{self.model}▲]. Type 'exit' to end the session.\n")
             
             # Start interactive chat loop
             while True:
