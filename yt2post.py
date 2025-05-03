@@ -2,18 +2,26 @@
 """
 YouTube to Post Converter
 ------------------------
-This script downloads YouTube videos, transcribes them, and enables AI-powered chat interactions
-based on the video content. It supports three main operations:
-- Transcription only: Downloads and transcribes a YouTube video
+This script processes YouTube videos or local .mp3 files, transcribes them, and enables AI-powered chat interactions
+based on the content. It supports three main operations:
+- Transcription only: Downloads and transcribes a YouTube video, or transcribes a local .mp3 file
 - Chat only: Initiates a chat session based on an existing transcript
 - Full process: Combines both operations (download, transcribe, and chat)
 
 Usage:
-    python yt2post.py [-t|--transcribe] [-c|--chat] [-f|--full] <youtube_url_or_input_file>
+    python yt2post.py [-t|--transcribe] [-c|--chat] [-f|--full] <youtube_url_or_mp3_file>
+
+Arguments:
+    <youtube_url_or_mp3_file>   URL of the YouTube video or path to a local .mp3 file to process.
+
+Notes:
+- Only local .mp3 files are supported for direct audio transcription (other formats must be converted to mp3 first).
+- Metadata (title, author, description) is automatically extracted from the mp3 if present, or defaults are used.
 """
 
 import argparse
 import sys
+import os
 import argcomplete
 
 from modules.config_manager import ConfigManager
@@ -26,8 +34,11 @@ from modules.ollama_manager import OllamaManager
 
 def main():
     # Initialize argument parser with program description
-    parser = argparse.ArgumentParser(description='Process YouTube videos and interact with AI.')
-    parser.add_argument('-t', '--transcribe', help='Download and transcribe the YouTube video', action='store_true')
+    parser = argparse.ArgumentParser(
+    description='Process YouTube videos (via URL) or local .mp3 files: download, transcribe, and chat with AI.\n'
+                'Input can be a YouTube URL or a path to a local .mp3 file. Only .mp3 is supported for local audio.'
+)
+    parser.add_argument('-t', '--transcribe', help='Download and transcribe the YouTube video or local mp3 file', action='store_true')
     parser.add_argument('-c', '--chat', help='Chat with AI based on the transcript.', action='store_true')
     parser.add_argument('-f', '--full', help='Download, transcribe, and chat with AI.', action='store_true')
     parser.add_argument('-m', '--model-select', help='Select from running models', action='store_true')
@@ -43,28 +54,29 @@ def main():
         work_dir = config_manager.read_config('work_directory')
         directory_manager = DirectoryManager(tmp_directory=tmp_dir, work_directory=work_dir)
         
-        # Handle model selection
-        ollama_manager = OllamaManager()
-        
-        try:
-            if args.model_select:
-                # Interactive mode with model selection
-                model_name = ollama_manager.select_model(use_running=True)
-            else:
-                # Non-interactive mode: auto-select first running model
-                model_name = ollama_manager.select_model(use_running=True, non_interactive=True)
-        except Exception as e:
-            print(str(e))
-            sys.exit(1)
-        
         # Initialize YouTube downloader with error handling
         try:
             youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir)
         except (ImportError, RuntimeError) as e:
             print(f"\nDependency Error: {str(e)}")
             sys.exit(1)
-            
-        chat_manager = OllamaManager(model=model_name)
+
+        model_name = None
+        chat_manager = None
+        # Only initialize Ollama and select model if chat or full mode is required
+        if args.chat or args.full:
+            ollama_manager = OllamaManager()
+            try:
+                if args.model_select:
+                    # Interactive mode with model selection
+                    model_name = ollama_manager.select_model(use_running=True)
+                else:
+                    # Non-interactive mode: auto-select first running model
+                    model_name = ollama_manager.select_model(use_running=True, non_interactive=True)
+            except Exception as e:
+                print(str(e))
+                sys.exit(1)
+            chat_manager = OllamaManager(model=model_name)
 
         # Validate command-line arguments
         if not (args.transcribe or args.chat or args.full):
@@ -75,8 +87,33 @@ def main():
         elif args.transcribe:
             try:
                 transcriber = Transcriber(work_directory=work_dir)
-                audio_file, json_file = youtube_downloader.download_audio(args.url_or_input)
-                transcript_file = transcriber.create_transcript_content(audio_file, json_file, args.url_or_input)
+                input_path = args.url_or_input
+                if input_path and input_path.lower().endswith('.mp3') and os.path.isfile(input_path):
+                    # Use local mp3 file and generate minimal metadata JSON
+                    import json
+                    base = os.path.splitext(os.path.basename(input_path))[0]
+                    json_file = os.path.join(tmp_dir, f"{base}.info.json")
+                    if not os.path.exists(json_file):
+                        # Extract metadata from mp3 using mutagen
+                        try:
+                            from mutagen.easyid3 import EasyID3
+                            audio = EasyID3(input_path)
+                            title = audio.get('title', [base])[0]
+                            author = audio.get('artist', ['Unknown'])[0]
+                            description = audio.get('comment', [''])[0]
+                        except Exception:
+                            title = base
+                            author = "Unknown"
+                            description = ""
+                        meta = {"title": title, "author": author, "description": description}
+                        with open(json_file, 'w', encoding='utf-8') as f:
+                            json.dump(meta, f)
+                    audio_file = input_path
+                    youtube_url = input_path  # For transcript content, just pass the file path
+                else:
+                    audio_file, json_file = youtube_downloader.download_audio(input_path)
+                    youtube_url = input_path
+                transcript_file = transcriber.create_transcript_content(audio_file, json_file, youtube_url)
                 print(f"Transcript saved to: {transcript_file}")
             except Exception as e:
                 print(f"\nError during transcription process: {str(e)}")
@@ -94,8 +131,33 @@ def main():
         elif args.full:
             try:
                 transcriber = Transcriber(work_directory=work_dir)
-                audio_file, json_file = youtube_downloader.download_audio(args.url_or_input)
-                transcript_file = transcriber.create_transcript_content(audio_file, json_file, args.url_or_input)
+                input_path = args.url_or_input
+                if input_path and input_path.lower().endswith('.mp3') and os.path.isfile(input_path):
+                    # Use local mp3 file and generate minimal metadata JSON
+                    import json
+                    base = os.path.splitext(os.path.basename(input_path))[0]
+                    json_file = os.path.join(tmp_dir, f"{base}.info.json")
+                    if not os.path.exists(json_file):
+                        # Extract metadata from mp3 using mutagen
+                        try:
+                            from mutagen.easyid3 import EasyID3
+                            audio = EasyID3(input_path)
+                            title = audio.get('title', [base])[0]
+                            author = audio.get('artist', ['Unknown'])[0]
+                            description = audio.get('comment', [''])[0]
+                        except Exception:
+                            title = base
+                            author = "Unknown"
+                            description = ""
+                        meta = {"title": title, "author": author, "description": description}
+                        with open(json_file, 'w', encoding='utf-8') as f:
+                            json.dump(meta, f)
+                    audio_file = input_path
+                    youtube_url = input_path  # For transcript content, just pass the file path
+                else:
+                    audio_file, json_file = youtube_downloader.download_audio(input_path)
+                    youtube_url = input_path
+                transcript_file = transcriber.create_transcript_content(audio_file, json_file, youtube_url)
                 chat_manager.interactive_chat(transcript_file)
             except Exception as e:
                 print(f"\nError during full process: {str(e)}")

@@ -6,7 +6,7 @@ This project provides a comprehensive tool for processing YouTube videos and eng
 
 ### Core Functionality
 - Download audio from YouTube videos using `yt-dlp`
-- Transcribe audio to text using OpenAI's `whisper`
+- Transcribe audio to text using OpenAI's `whisper` (or process a local .mp3 file directly)
 - Engage in interactive chat sessions about video content using `ollama` AI models
 
 ### Advanced Features
@@ -57,6 +57,9 @@ The tool provides several command-line options for different workflows:
 ```bash
 # Transcribe a YouTube video
 python yt2post.py -t <YouTube_URL>
+
+# Transcribe a local mp3 file (no user prompts, metadata auto-extracted)
+python yt2post.py -t /path/to/audio.mp3
 
 # Chat about an existing transcript
 python yt2post.py -c <transcript_file>
