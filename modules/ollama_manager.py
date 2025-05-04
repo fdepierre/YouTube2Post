@@ -29,7 +29,7 @@ class OllamaManager:
     user experience, whether used interactively or programmatically.
     
     Attributes:
-        model (str, optional): Name of the Ollama model to use for chat.
+        model (str, optional): Name of the Ollama model to use. If None, auto-select.
             Can be set during initialization or selected at runtime.
         client (ollama.Client): Client instance for communicating with the Ollama service.
     """
@@ -37,19 +37,21 @@ class OllamaManager:
     def __init__(self, model=None, host='http://localhost:11434'):
         """
         Initialize the OllamaManager with an optional model specification.
-        
-        The model can be specified during initialization or selected later using
-        the select_model method. This flexibility allows for runtime model selection
-        based on available or running models.
-        
+        By default, uses the only running model if just one is active.
         Args:
-            model (str, optional): Name of the Ollama model to use (e.g., 'deepseek-r1').
-                If None, a model must be selected before starting a chat session.
+            model (str, optional): Name of the Ollama model to use. If None, auto-select.
             host (str): Ollama API host URL (default: 'http://localhost:11434').
-                Should include the protocol (http/https) and port number.
         """
         self.model = model
         self.client = Client(host=host)
+        if self.model is None:
+            running_models = self.list_running_models()
+            if len(running_models) == 1:
+                self.model = running_models[0]
+            elif len(running_models) == 0:
+                raise Exception("No Ollama model is running. Please start a model with 'ollama run <model>' or use -m to select.")
+            # If multiple models are running, require explicit selection with -m.
+
         
     def list_available_models(self):
         """
@@ -60,9 +62,7 @@ class OllamaManager:
         model names can be used with 'ollama run' to start a model.
         
         Returns:
-            list[str]: A list of model names without version tags
-                (e.g., ['llama2', 'deepseek-r1', 'phi4'])
-                
+            list[str]: A list of model names with tags (e.g., ['llama3.2:latest', 'gemma3:4b', ...])
         Raises:
             Exception: If unable to connect to Ollama service or if the
                 service returns an unexpected response format
@@ -70,7 +70,8 @@ class OllamaManager:
         try:
             result = self.client.list()
             if hasattr(result, 'models'):
-                return [str(model).split("'")[1].split(':')[0] for model in result.models]
+                # Return the full model name with tag
+                return [str(model).split("'")[1] for model in result.models]
             return []
         except Exception as e:
             raise Exception(f'Failed to list models: {str(e)}')
@@ -85,8 +86,7 @@ class OllamaManager:
         
         Returns:
             list[str]: A list of model names that are currently running,
-                without version tags (e.g., ['llama2', 'deepseek-r1'])
-                
+                with version tags (e.g., ['llama3.2:latest', 'gemma3:4b'])
         Raises:
             Exception: If unable to connect to Ollama service or if the
                 service returns an unexpected response format
@@ -94,7 +94,8 @@ class OllamaManager:
         try:
             result = self.client.ps()
             if hasattr(result, 'models'):
-                return [str(model).split("'")[1].split(':')[0] for model in result.models]
+                # Return the full model name with tag
+                return [str(model).split("'")[1] for model in result.models]
             return []
         except Exception as e:
             raise Exception(f'Failed to list running models: {str(e)}')
@@ -145,13 +146,11 @@ class OllamaManager:
             print("\nRunning models:")
             for i, model in enumerate(running_models, 1):
                 print(f"{i}. {model} (▲)")
-                
             if len(running_models) == 1:
                 print("\nOnly one model is running. Press Enter to use it: ")
                 choice = input().strip().lower()
                 if not choice:  # User pressed Enter
                     return running_models[0]
-            
             while True:
                 print("\nEnter the number of the model to use: ")
                 choice = input().strip().lower()
@@ -171,7 +170,6 @@ class OllamaManager:
             for i, model in enumerate(available_models, 1):
                 indicator = " (▲)" if model in running_models else ""
                 print(f"{i}. {model}{indicator}")
-                
             while True:
                 print("\nEnter the number of the model to use: ")
                 choice = input().strip()
