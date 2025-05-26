@@ -290,13 +290,23 @@ class OllamaManager:
             with open(transcript_file, 'r') as file:
                 transcript_content = file.read()
 
-            # Initialize chat history with transcript as a user message
-            chat_history = [{'role': 'user', 'content': f"Here is the transcript of the video:\n\n{transcript_content}"}]
+            # Initialize chat with system message containing transcript
+            initial_prompt = f"""You are an AI assistant helping analyze a video transcript. 
+The transcript is provided below. Please use it to answer questions about the video.
+
+TRANSCRIPT:
+{transcript_content}
+
+Please wait for the user's question about the video."""
+
+            chat_history = [
+                {'role': 'system', 'content': initial_prompt},
+                {'role': 'assistant', 'content': 'I have the transcript ready. Please ask me any questions about the video.'}
+            ]
 
             # Display model badge with running indicator
             print(f"\nChat session started with [{self.model}▲]. Type 'exit' to end the session.\n")
-
-            print("The transcript has been provided to the AI. Please ask your question about the video.\n")
+            print("The AI has been provided with the video transcript. You can now ask questions about it.\n")
 
             # Start interactive chat loop
             while True:
