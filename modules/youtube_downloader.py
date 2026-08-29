@@ -13,8 +13,30 @@ try:
     import yt_dlp
 except ImportError:
     raise ImportError(
-        "yt-dlp is not installed. Please install it using: pip install yt-dlp"
+        'yt-dlp is not installed. Please install it using: pip install -U "yt-dlp[default]"'
     )
+
+# yt-dlp 2025.11.12+ requires an external JS runtime for YouTube.
+_MIN_YTDLP_VERSION = (2025, 11, 12)
+
+# JS runtimes supported by yt-dlp, in priority order.
+_JS_RUNTIME_CANDIDATES = (
+    ('deno', 'deno'),
+    ('node', 'node'),
+    ('quickjs', 'qjs'),
+    ('bun', 'bun'),
+)
+
+
+def _parse_yt_dlp_version(version_string):
+    parts = []
+    for part in version_string.split('.'):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            break
+    return tuple(parts)
+
 
 class YouTubeDownloader:
     """
@@ -50,6 +72,60 @@ class YouTubeDownloader:
                 "3. Add the bin folder to your system's PATH environment variable"
             )
 
+    def _detect_js_runtimes(self):
+        """Return yt-dlp js_runtimes for every supported runtime on PATH."""
+        runtimes = {}
+        for name, executable in _JS_RUNTIME_CANDIDATES:
+            path = shutil.which(executable)
+            if path:
+                runtimes[name] = {'path': path}
+        return runtimes
+
+    def _base_ydl_opts(self, js_runtimes):
+        """Build shared yt-dlp options for audio extraction."""
+        opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'outtmpl': f'{self.tmp_directory}/%(title)s.%(ext)s',
+            'writeinfojson': True,
+            'nocheckcertificate': True,
+            'no_warnings': False,
+            'quiet': False,
+            'retries': 3,
+            'extractor_retries': 3,
+            # Allow fetching EJS challenge solvers if yt-dlp-ejs is not installed.
+            'remote_components': ['ejs:github'],
+        }
+        if js_runtimes:
+            opts['js_runtimes'] = js_runtimes
+        return opts
+
+    def _download_attempts(self, js_runtimes):
+        """Yield yt-dlp option sets, starting with JS-enabled clients then fallbacks."""
+        base = self._base_ydl_opts(js_runtimes)
+        if js_runtimes:
+            yield dict(base)
+            fallback_clients = (
+                ['web'],
+                ['android'],
+                ['tv'],
+            )
+        else:
+            # Without a JS runtime, the default android_vr client often 403s.
+            fallback_clients = (
+                ['android'],
+                ['tv'],
+                ['web'],
+            )
+        for clients in fallback_clients:
+            attempt = dict(base)
+            attempt['extractor_args'] = {'youtube': {'player_client': clients}}
+            yield attempt
+
     def download_audio(self, youtube_url):
         """
         Download audio from a YouTube video and extract metadata.
@@ -66,30 +142,63 @@ class YouTubeDownloader:
         Raises:
             Exception: If download fails or URL is invalid
         """
-        # Configure yt-dlp options for audio extraction
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'outtmpl': f'{self.tmp_directory}/%(title)s.%(ext)s',
-            'writeinfojson': True,
-            'nocheckcertificate': True,
-            'no_warnings': False,
-            'quiet': False,
-            # Use a modern user agent
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        }
+        installed_version = getattr(yt_dlp.version, '__version__', '0')
+        if _parse_yt_dlp_version(installed_version) < _MIN_YTDLP_VERSION:
+            print(
+                f"Warning: yt-dlp {installed_version} is outdated. "
+                f"YouTube downloads often fail with HTTP 403 on old versions. "
+                f'Upgrade with: pip install -U "yt-dlp[default]"'
+            )
 
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([youtube_url])
-        except yt_dlp.utils.DownloadError as e:
-            raise Exception(f'Error downloading the video: {str(e)}. Please check if the URL is valid.')
-        except Exception as e:
-            raise Exception(f'Unexpected error while downloading: {str(e)}')
+        js_runtimes = self._detect_js_runtimes()
+        if js_runtimes:
+            available = ', '.join(
+                f"{name} ({config['path']})" for name, config in js_runtimes.items()
+            )
+            print(f"Using JavaScript runtime(s) for YouTube: {available}")
+        else:
+            print(
+                "Warning: no JavaScript runtime found (Deno recommended, Node also works). "
+                "YouTube extraction without one is deprecated and often returns HTTP 403. "
+                "See https://github.com/yt-dlp/yt-dlp/wiki/EJS"
+            )
+
+        last_error = None
+        for ydl_opts in self._download_attempts(js_runtimes):
+            player_client = (
+                ydl_opts.get('extractor_args', {})
+                .get('youtube', {})
+                .get('player_client')
+            )
+            if player_client:
+                print(f"Trying YouTube download with player_client={player_client[0]}")
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([youtube_url])
+                last_error = None
+                break
+            except yt_dlp.utils.DownloadError as e:
+                last_error = e
+                error_text = str(e)
+                if 'HTTP Error 403' not in error_text and '403: Forbidden' not in error_text:
+                    raise Exception(
+                        f'Error downloading the video: {error_text}. Please check if the URL is valid.'
+                    )
+                print(f"YouTube returned 403 Forbidden ({error_text}). Trying another client...")
+            except Exception as e:
+                raise Exception(f'Unexpected error while downloading: {str(e)}')
+
+        if last_error is not None:
+            hint = ''
+            if not js_runtimes:
+                hint = (
+                    ' Install Deno (https://deno.com) or make sure Node.js is on PATH, '
+                    'then run: pip install -U "yt-dlp[default]".'
+                )
+            raise Exception(
+                f'Error downloading the video: {str(last_error)}. '
+                f'Please check if the URL is valid.{hint}'
+            )
 
         # Find the downloaded files
         audio_file = None
