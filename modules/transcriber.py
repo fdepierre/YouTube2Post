@@ -24,57 +24,82 @@ class Transcriber:
     transcript content that includes video metadata.
     
     Attributes:
-        model_name (str): Name of the Whisper model to use (default: 'base')
+        model_name (str): Name of the Whisper model in use (chosen per device
+            unless given explicitly)
         work_directory (str): Directory for storing output files
         device (str): Computing device to use (CPU/CUDA)
         compute_type (str): Computation type for the model
     """
 
     BATCH_SIZE = 16
+    # The GPU can afford the much more accurate model (18 min of audio in ~30 s
+    # on an RTX 2060, ~4 GB VRAM); on CPU it would be several times slower, so
+    # CPUs keep the fast 'base' model.
+    GPU_MODEL = 'large-v3-turbo'
+    CPU_MODEL = 'base'
 
-    def __init__(self, model_name='base', work_directory='.'):
+    def __init__(self, model_name=None, work_directory='.'):
         """
         Initialize the Transcriber with specified model and working directory.
-        
+
         Args:
-            model_name (str): Name of the Whisper model to use
+            model_name (str, optional): Whisper model to use on every device.
+                If None, GPU_MODEL is used on GPU and CPU_MODEL on CPU.
             work_directory (str): Directory for storing output files
         """
-        self.model_name = model_name
+        self.requested_model = model_name
         self.work_directory = work_directory
         # Use the GPU only if a one-time test proved it works; CPU otherwise
-        self.device, self.compute_type = select_device()
+        device, compute_type = select_device()
         try:
-            self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+            self._load(device, compute_type)
         except Exception as e:
-            if self.device == 'cpu':
+            if device == 'cpu':
                 raise
             # GPU worked before but not now (driver/library change): fall back to CPU
             print(f"GPU initialisation failed ({e}); falling back to CPU.")
             save_result('cpu')
-            self.device, self.compute_type = 'cpu', 'int8'
-            self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+            self._load('cpu', 'int8')
+        print(f"Using device: {self.device} (model: {self.model_name})")
+
+    def _load(self, device, compute_type):
+        """Load the Whisper model suited to the device."""
+        self.device, self.compute_type = device, compute_type
+        self.model_name = self.requested_model or (
+            self.GPU_MODEL if device == 'cuda' else self.CPU_MODEL
+        )
+        self.model = WhisperModel(self.model_name, device=device, compute_type=compute_type)
         # Batched inference transcribes several audio chunks at once:
         # measured ~4x faster on GPU and ~2x faster on CPU, with the same output.
         self.pipeline = BatchedInferencePipeline(model=self.model)
-        print(f"Using device: {self.device}")
+
+    def _transcribe_text(self, audio_file):
+        segments, _ = self.pipeline.transcribe(audio_file, batch_size=self.BATCH_SIZE)
+        # Segments are generated lazily: errors surface while joining them
+        return " ".join(segment.text for segment in segments)
 
     def transcribe_audio(self, audio_file):
         """
         Transcribe an audio file to text using Faster Whisper.
-        
+
         Args:
             audio_file (str): Path to the audio file to transcribe
-            
+
         Returns:
             str: Path to the generated transcript file
         """
-        # Transcribe the audio
-        segments, _ = self.pipeline.transcribe(audio_file, batch_size=self.BATCH_SIZE)
+        try:
+            text = self._transcribe_text(audio_file)
+        except Exception as e:
+            if self.device == 'cpu':
+                raise
+            # e.g. a GPU with too little memory for the large model
+            print(f"GPU transcription failed ({e}); retrying on CPU.")
+            del self.pipeline, self.model
+            self._load('cpu', 'int8')
+            print(f"Using device: {self.device} (model: {self.model_name})")
+            text = self._transcribe_text(audio_file)
         transcript_file = f"{audio_file}.txt"
-        
-        # Combine all segments into one text
-        text = " ".join([segment.text for segment in segments])
         
         # Write the transcript to a file with UTF-8 encoding
         with open(transcript_file, "w", encoding='utf-8') as f:

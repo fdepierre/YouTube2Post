@@ -107,6 +107,11 @@ so a broken CUDA setup cannot crash it) and remembers the result in
 `~/.cache/yt2post/device.json`. The test runs again automatically on another computer or
 Python environment. If the GPU later fails to start, the program falls back to the CPU.
 
+The Whisper model depends on the device: `large-v3-turbo` on GPU (much more accurate,
+~30 s for 18 min of audio, ~4 GB of GPU memory, 1.6 GB one-time download) and `base` on
+CPU (fast on any computer). If a GPU transcription fails (e.g. not enough GPU memory),
+it is retried on the CPU with `base`.
+
 - Force a device: `YT2POST_DEVICE=cpu python yt2post.py ...` (or `cuda`)
 - Re-run the test: delete `~/.cache/yt2post/device.json`
 
