@@ -9,8 +9,12 @@ metadata from the source video.
 import json
 import os
 import re
-import torch
 from faster_whisper import WhisperModel
+
+try:
+    from .device_selector import select_device, save_result
+except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
+    from device_selector import select_device, save_result
 
 class Transcriber:
     """
@@ -36,12 +40,19 @@ class Transcriber:
         """
         self.model_name = model_name
         self.work_directory = work_directory
-        # Force CPU usage to avoid CUDA compatibility issues
-        self.device = 'cpu'
-        self.compute_type = "int8"
-        print(f"Using device: {self.device} (forced to avoid CUDA issues)")
-        # Initialize the model in constructor
-        self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+        # Use the GPU only if a one-time test proved it works; CPU otherwise
+        self.device, self.compute_type = select_device()
+        try:
+            self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+        except Exception as e:
+            if self.device == 'cpu':
+                raise
+            # GPU worked before but not now (driver/library change): fall back to CPU
+            print(f"GPU initialisation failed ({e}); falling back to CPU.")
+            save_result('cpu')
+            self.device, self.compute_type = 'cpu', 'int8'
+            self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+        print(f"Using device: {self.device}")
 
     def transcribe_audio(self, audio_file):
         """

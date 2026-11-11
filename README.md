@@ -100,6 +100,16 @@ Create a `config.json` file in the root directory:
 - Available models can be listed using `ollama list`
 - Running models can be viewed using `ollama ps`
 
+### Transcription Device (CPU / GPU)
+Transcription runs on the CPU by default, which works on any computer. On the first run,
+the program tests once whether Faster Whisper can use a CUDA GPU (in a separate process,
+so a broken CUDA setup cannot crash it) and remembers the result in
+`~/.cache/yt2post/device.json`. The test runs again automatically on another computer or
+Python environment. If the GPU later fails to start, the program falls back to the CPU.
+
+- Force a device: `YT2POST_DEVICE=cpu python yt2post.py ...` (or `cuda`)
+- Re-run the test: delete `~/.cache/yt2post/device.json`
+
 ## Development
 
 ### Testing and Quality Assurance
@@ -125,6 +135,7 @@ View the coverage report at `htmlcov/index.html`
 YouTube2Post/
 ├── modules/                    # Core functionality modules
 │   ├── config_manager.py       # Configuration handling
+│   ├── device_selector.py      # CPU/GPU detection for transcription
 │   ├── directory_manager.py    # File and directory management
 │   ├── ollama_manager.py       # AI model interaction
 │   ├── transcriber.py          # Audio transcription
