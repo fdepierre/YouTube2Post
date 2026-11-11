@@ -84,12 +84,18 @@ class YouTubeDownloader:
     def _base_ydl_opts(self, js_runtimes):
         """Build shared yt-dlp options for audio extraction."""
         opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
+            # Keep YouTube's original audio (Opus/AAC): faster-whisper reads it
+            # directly, so converting to MP3 would only cost time.
+            # Whisper downsamples to 16 kHz mono, so a ~50 kbps stream gives the
+            # same transcript as ~130 kbps at 2.5x less download (matters on ADSL).
+            # Prefer the original-language track: some videos also carry
+            # YouTube auto-dubbed tracks in other languages.
+            'format': (
+                'bestaudio[format_note*=original][abr<=64]'
+                '/bestaudio[format_note*=original]'
+                '/bestaudio[abr<=64]'
+                '/bestaudio/best'
+            ),
             'outtmpl': f'{self.tmp_directory}/%(title)s.%(ext)s',
             'writeinfojson': True,
             'nocheckcertificate': True,
@@ -131,7 +137,7 @@ class YouTubeDownloader:
         Download audio from a YouTube video and extract metadata.
         
         This method downloads the best available audio quality from a YouTube video
-        and extracts it to MP3 format. It also saves video metadata in JSON format.
+        in its original format (Opus/AAC, no conversion). It also saves video metadata in JSON format.
         
         Args:
             youtube_url (str): URL of the YouTube video to download
@@ -174,7 +180,7 @@ class YouTubeDownloader:
                 print(f"Trying YouTube download with player_client={player_client[0]}")
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([youtube_url])
+                    info = ydl.extract_info(youtube_url, download=True)
                 last_error = None
                 break
             except yt_dlp.utils.DownloadError as e:
@@ -200,16 +206,12 @@ class YouTubeDownloader:
                 f'Please check if the URL is valid.{hint}'
             )
 
-        # Find the downloaded files
-        audio_file = None
-        json_file = None
-        for file in os.listdir(self.tmp_directory):
-            if file.endswith('.mp3'):
-                audio_file = os.path.join(self.tmp_directory, file)
-            elif file.endswith('.info.json'):
-                json_file = os.path.join(self.tmp_directory, file)
+        # yt-dlp reports the exact paths it wrote
+        downloads = info.get('requested_downloads') or [{}]
+        audio_file = downloads[0].get('filepath')
+        json_file = os.path.splitext(audio_file)[0] + '.info.json' if audio_file else None
 
-        if not audio_file or not json_file:
+        if not (audio_file and os.path.exists(audio_file) and os.path.exists(json_file)):
             raise Exception('Failed to locate downloaded files')
 
         return audio_file, json_file
