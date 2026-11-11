@@ -9,12 +9,22 @@ metadata from the source video.
 import json
 import os
 import re
+import time
 from faster_whisper import BatchedInferencePipeline, WhisperModel
 
 try:
     from .device_selector import select_device, save_result
 except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
     from device_selector import select_device, save_result
+
+
+def _hms(seconds):
+    """Format seconds as m:ss or h:mm:ss."""
+    seconds = int(seconds)
+    h, rest = divmod(seconds, 3600)
+    m, s = divmod(rest, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
 
 class Transcriber:
     """
@@ -74,9 +84,29 @@ class Transcriber:
         self.pipeline = BatchedInferencePipeline(model=self.model)
 
     def _transcribe_text(self, audio_file):
-        segments, _ = self.pipeline.transcribe(audio_file, batch_size=self.BATCH_SIZE)
-        # Segments are generated lazily: errors surface while joining them
-        return " ".join(segment.text for segment in segments)
+        print("Preparing audio (decoding, speech and language detection)...", flush=True)
+        segments, info = self.pipeline.transcribe(audio_file, batch_size=self.BATCH_SIZE)
+        duration = getattr(info, 'duration', 0) or 0
+        if duration:
+            print(f"Transcribing {_hms(duration)} of audio "
+                  f"(language: {getattr(info, 'language', '?')}) with {self.model_name} on {self.device}...")
+        # Segments are generated lazily, batch by batch: report progress as they
+        # arrive (errors also surface here, not in transcribe()).
+        texts = []
+        start = time.monotonic()
+        for segment in segments:
+            texts.append(segment.text)
+            if duration:
+                done = min(segment.end / duration, 1.0)
+                elapsed = time.monotonic() - start
+                eta = elapsed / done - elapsed if done > 0.02 else None
+                print(f"\r  {done:4.0%}  {_hms(segment.end)} / {_hms(duration)}"
+                      f"  elapsed {_hms(elapsed)}"
+                      + (f"  remaining ~{_hms(eta)}" if eta is not None else "")
+                      + " " * 4, end="", flush=True)
+        if duration:
+            print(f"\r  100%  done in {_hms(time.monotonic() - start)}" + " " * 40)
+        return " ".join(texts)
 
     def transcribe_audio(self, audio_file):
         """
