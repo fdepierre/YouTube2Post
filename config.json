@@ -1,4 +1,7 @@
 {
     "tmp_directory": "tmp",
-    "work_directory": "work"
+    "work_directory": "work",
+    "model": "qwen3.5",
+    "ollama_model": "qwen3.5",
+    "ollama_host": "http://localhost:11434"
 }
