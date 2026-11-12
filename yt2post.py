@@ -20,6 +20,7 @@ Notes:
 """
 
 import argparse
+import gc
 import sys
 import os
 import argcomplete
@@ -67,7 +68,7 @@ def main():
     parser.add_argument('-t', '--transcribe', help='Download and transcribe the YouTube video or local mp3 file', action='store_true')
     parser.add_argument('-c', '--chat', help='Chat with AI based on the transcript.', action='store_true')
     parser.add_argument('-f', '--full', help='Download, transcribe, and chat with AI.', action='store_true')
-    parser.add_argument('-m', '--model-select', help='Select a specific Ollama model (overrides default: use the currently running model)', action='store_true')
+    parser.add_argument('-m', '--model-select', help='Choose the Ollama model from the installed ones (default: the loaded model, or the only installed one)', action='store_true')
     parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing. '
                         'With -t or -f, if omitted, the YouTube URL is taken from the clipboard.', nargs='?')
 
@@ -92,41 +93,15 @@ def main():
             print(f"\nDependency Error: {str(e)}")
             sys.exit(1)
 
-        model_name = None
         chat_manager = None
-        # Only initialize Ollama and select model if chat or full mode is required
+        # Only choose an Ollama model if chat or full mode is required
         if args.chat or args.full:
-            ollama_manager = OllamaManager()
             try:
-                running_models = ollama_manager.list_running_models()
-                available_models = ollama_manager.list_available_models()
-                # If -m is used, prompt user to select from running models, or check if requested model is running
-                if args.model_select:
-                    if not running_models:
-                        print("\nNo models are currently running. Available models:")
-                        for model in available_models:
-                            print(f"- {model}")
-                        print("\nPlease start one of these models using 'ollama run <model_name>' and try again.")
-                        sys.exit(1)
-                    print("\nInteractive model selection:")
-                    model_name = ollama_manager.select_model(use_running=True)
-                else:
-                    if not running_models:
-                        print("\nNo models are currently running. Available models:")
-                        for model in available_models:
-                            print(f"- {model}")
-                        print("\nPlease start one of these models using 'ollama run <model_name>' and try again.")
-                        sys.exit(1)
-                    elif len(running_models) == 1:
-                        model_name = running_models[0]
-                        print(f"\nOnly one model is running: '{model_name}' will be used.")
-                    else:
-                        print("\nMultiple models are running:")
-                        model_name = ollama_manager.select_model(use_running=True)
-                        print(f"Selected model: {model_name}")
+                model_name = OllamaManager().choose_model(ask=args.model_select)
+                print(f"\nOllama model: {model_name}")
                 chat_manager = OllamaManager(model=model_name)
             except Exception as e:
-                print(str(e))
+                print(f"\n{e}")
                 sys.exit(1)
 
         # Validate command-line arguments
@@ -209,6 +184,10 @@ def main():
                     audio_file, json_file = youtube_downloader.download_audio(input_path)
                     youtube_url = input_path
                 transcript_file = transcriber.create_transcript_content(audio_file, json_file, youtube_url)
+                print(f"Transcript saved to: {os.path.abspath(transcript_file)}")
+                # Free the Whisper model's GPU memory for the Ollama model
+                del transcriber
+                gc.collect()
                 chat_manager.interactive_chat(transcript_file)
             except Exception as e:
                 print(f"\nError during full process: {str(e)}")

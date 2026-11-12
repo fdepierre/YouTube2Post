@@ -12,7 +12,7 @@ This project provides a comprehensive tool for processing YouTube videos and eng
 - Engage in interactive chat sessions about video content using `ollama` AI models
 
 ### Advanced Features
-- Runtime model selection from available or running Ollama models
+- Runtime model selection from the installed Ollama models
 - Smart handling of model availability and startup
 - Robust error handling and graceful session management
 - Support for multiple exit commands and interrupt handling
@@ -42,14 +42,14 @@ This project provides a comprehensive tool for processing YouTube videos and eng
 
 5. **Ollama** (only for the chat options `-c` and `-f`):
 
-   Ollama must be installed and running on your local machine, with a model started:
+   [Install Ollama](https://ollama.com/download) (it runs as a background service) and
+   download at least one model, for example:
 
    ```bash
-   ollama serve &
-   ollama run <model_name>
+   ollama pull qwen3.5:4b
    ```
 
-   The program uses the running model (or lets you choose with `-m`).
+   There is no need to start the model with `ollama run`: Ollama loads it on the first question.
 
 ## Usage
 
@@ -110,15 +110,16 @@ python yt2post.py -f [<YouTube_URL>]
 ### Model Selection
 
 ```bash
-# Use model selection interface
+# Choose the Ollama model from the installed ones
 python yt2post.py -m -c <transcript_file>
 ```
 
-When using the `-m` option:
-- If models are running, you can select one directly
-- If no models are running, available models will be listed
-- Press Enter to use a single running model, or type 'no' to see alternatives
-- Type 'exit' during chat to end the session
+Without `-m`, the model is chosen automatically when there is no doubt: the model already
+loaded in Ollama, or the only installed one. Otherwise, and always with `-m`, the installed
+models are listed (▲ = already loaded) and you type a number; Enter takes the default (the
+loaded model, else the most recently installed one).
+
+Type `exit` during the chat to end the session.
 
 ## Configuration
 
@@ -138,10 +139,9 @@ Relative paths are relative to the program's directory, wherever you start it fr
 Absolute paths (or `~/...`) can be used to put the files elsewhere.
 
 ### Ollama Model
-- By default, the currently running Ollama model is used
-- Use the `-m` option to select a model at runtime
-- Available models can be listed using `ollama list`
-- Running models can be viewed using `ollama ps`
+- See [Model Selection](#model-selection) for how the model is chosen
+- Installed models can be listed using `ollama list`, loaded ones using `ollama ps`
+- With `-f`, the Whisper model is freed from GPU memory before the chat starts
 - The whole transcript is sent to the model: the context size (`num_ctx`) is computed from
   the transcript length (16k tokens for a ~45 min video), and the program prints it
 - The hidden "thinking" of reasoning models (qwen3.5, gemma4...) is turned off: it made
