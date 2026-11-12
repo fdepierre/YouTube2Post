@@ -39,7 +39,7 @@ class TestChatUsesContext(unittest.TestCase):
             client = client_cls.return_value
             client.show.return_value = MagicMock(modelinfo={'qwen35.context_length': 262144},
                                                  capabilities=['completion', 'thinking'])
-            client.chat.return_value = {'message': {'content': 'ok'}}
+            client.chat.side_effect = lambda **kw: iter([{'message': {'content': 'o'}}, {'message': {'content': 'k'}}])
             manager = om.OllamaManager(model='qwen3.5:4b')
             transcript = os.path.join(os.path.dirname(__file__), 'test_chat.txt')
             with open(transcript, encoding='utf-8') as f:
@@ -53,12 +53,32 @@ class TestChatUsesContext(unittest.TestCase):
             self.assertEqual(kwargs['options']['num_ctx'], om.context_size(kwargs['messages'][:3], 262144))
             self.assertGreaterEqual(kwargs['options']['num_ctx'], om.MIN_CONTEXT)
             self.assertIs(kwargs['think'], False)
+            self.assertIs(kwargs['stream'], True)
+            # the streamed parts are joined into the history
+            self.assertEqual(kwargs['messages'][-1], {'role': 'assistant', 'content': 'ok'})
+
+    def test_ctrl_c_stops_the_answer_but_not_the_chat(self):
+        def interrupted(**kw):
+            yield {'message': {'content': 'par'}}
+            raise KeyboardInterrupt
+        with patch.object(om, 'Client') as client_cls:
+            client = client_cls.return_value
+            client.show.return_value = MagicMock(modelinfo={}, capabilities=[])
+            answers = [interrupted, lambda **kw: iter([{'message': {'content': 'done'}}])]
+            client.chat.side_effect = lambda **kw: answers.pop(0)(**kw)
+            manager = om.OllamaManager(model='m')
+            transcript = os.path.join(os.path.dirname(__file__), 'test_chat.txt')
+            with patch('builtins.input', side_effect=['q1', 'q2', 'exit']), patch('builtins.print'):
+                manager.interactive_chat(transcript)
+            history = client.chat.call_args.kwargs['messages']
+            # q1 and its partial answer were dropped, q2 was answered
+            self.assertEqual([m['content'] for m in history[2:]], ['q2', 'done'])
 
     def test_non_thinking_model_gets_no_think_argument(self):
         with patch.object(om, 'Client') as client_cls:
             client = client_cls.return_value
             client.show.return_value = MagicMock(modelinfo={}, capabilities=['completion'])
-            client.chat.return_value = {'message': {'content': 'ok'}}
+            client.chat.side_effect = lambda **kw: iter([{'message': {'content': 'o'}}, {'message': {'content': 'k'}}])
             manager = om.OllamaManager(model='llama3.2')
             transcript = os.path.join(os.path.dirname(__file__), 'test_chat.txt')
             with patch('builtins.input', side_effect=['hi', 'exit']), patch('builtins.print'):

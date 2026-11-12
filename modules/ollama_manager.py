@@ -12,6 +12,10 @@ The module is designed to be both user-friendly for interactive use and
 robust for programmatic integration.
 """
 
+import itertools
+import threading
+import time
+
 from ollama import Client
 
 # Ollama only reads the first few thousand tokens of a prompt by default
@@ -32,6 +36,36 @@ def context_size(messages, max_context=None):
     if max_context:
         size = min(size, max_context)
     return size
+
+
+class _WaitIndicator:
+    """Show a spinner with the elapsed time until the first words of the answer."""
+
+    def __init__(self, label):
+        self.label = label
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        start = time.monotonic()
+        for frame in itertools.cycle('|/-\\'):
+            print(f"\r{frame} {self.label} {time.monotonic() - start:.0f}s ",
+                  end='', flush=True)
+            if self._stop.wait(0.2):
+                break
+        print("\r" + " " * (len(self.label) + 12) + "\r", end='', flush=True)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def stop(self):
+        if not self._stop.is_set():
+            self._stop.set()
+            self._thread.join()
+
+    def __exit__(self, *exc):
+        self.stop()
 
 
 class OllamaManager:
@@ -212,6 +246,46 @@ class OllamaManager:
                                 "Check the installed models with 'ollama list'.")
             return False
 
+    def _stream_answer(self, chat_history, max_context, chat_options, first):
+        """
+        Ask the model and print its answer as it is written. Until the first
+        words arrive, a spinner shows that the model is working: the first
+        question takes longest, as the model reads the whole transcript.
+
+        Returns:
+            str: The answer, or None if the user interrupted it with Ctrl+C.
+        """
+        # A context that holds the whole conversation
+        num_ctx = context_size(chat_history, max_context)
+        label = ("Reading the transcript and preparing the answer..." if first
+                 else "Preparing the answer...")
+        parts = []
+        start = time.monotonic()
+        indicator = _WaitIndicator(label)
+        try:
+            with indicator:
+                stream = self.client.chat(
+                    model=self.model,
+                    messages=chat_history,
+                    options={'num_ctx': num_ctx},
+                    stream=True,
+                    **chat_options,
+                )
+                for chunk in stream:
+                    text = chunk['message']['content']
+                    if not text:
+                        continue
+                    if not parts:
+                        indicator.stop()
+                        print("Assistant: ", end='', flush=True)
+                    parts.append(text)
+                    print(text, end='', flush=True)
+        except KeyboardInterrupt:
+            print("\n[Answer interrupted]\n")
+            return None
+        print(f"\n({time.monotonic() - start:.0f}s)\n")
+        return ''.join(parts)
+
     def interactive_chat(self, transcript_file):
         """
         Start an interactive chat session about a video transcript.
@@ -275,6 +349,8 @@ Please wait for the user's question about the video."""
             print("The AI has been provided with the video transcript. You can now ask questions about it.\n")
 
             # Start interactive chat loop
+            print("While an answer is being written, Ctrl+C stops it.\n")
+            questions = 0
             while True:
                 try:
                     user_input = input("User: ").strip()
@@ -291,19 +367,13 @@ Please wait for the user's question about the video."""
                     # Add user message to chat history
                     chat_history.append({'role': 'user', 'content': user_input})
                     
-                    # Get AI response, with a context that holds the whole conversation
-                    num_ctx = context_size(chat_history, max_context)
-                    response = self.client.chat(
-                        model=self.model,
-                        messages=chat_history,
-                        options={'num_ctx': num_ctx},
-                        **chat_options,
-                    )
-                    
-                    # Extract and print assistant's response
-                    assistant_message = response['message']['content']
-                    print(f"Assistant: {assistant_message}")
-                    
+                    assistant_message = self._stream_answer(
+                        chat_history, max_context, chat_options, first=(questions == 0))
+                    questions += 1
+                    if assistant_message is None:  # interrupted with Ctrl+C
+                        chat_history.pop()
+                        continue
+
                     # Add assistant's response to conversation history
                     chat_history.append({
                         'role': 'assistant',
