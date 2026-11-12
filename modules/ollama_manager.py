@@ -18,8 +18,10 @@ from ollama import Client
 
 try:
     from .progress import Spinner
+    from . import ui
 except ImportError:  # imported as a top-level module
     from progress import Spinner
+    import ui
 
 # Ollama only reads the first few thousand tokens of a prompt by default
 # (num_ctx), so a long transcript would be cut off. The context is sized from
@@ -148,9 +150,9 @@ class OllamaManager:
             if len(installed) == 1:
                 return installed[0]
 
-        print("\nInstalled Ollama models (▲ = already loaded):")
+        print("Installed Ollama models (▲ = already loaded):")
         for i, model in enumerate(installed, 1):
-            print(f"  {i}. {model}{' ▲' if model in running else ''}")
+            print(f"  {ui.style(str(i), 'bold', 'cyan')}. {model}{' ▲' if model in running else ''}")
         while True:
             try:
                 choice = input(f"Model number [Enter = {default}]: ").strip()
@@ -250,13 +252,13 @@ class OllamaManager:
                         continue
                     if not parts:
                         indicator.stop()
-                        print("Assistant: ", end='', flush=True)
+                        print(ui.style("Assistant: ", 'bold', 'magenta'), end='', flush=True)
                     parts.append(text)
                     print(text, end='', flush=True)
         except KeyboardInterrupt:
-            print("\n[Answer interrupted]\n")
+            ui.warn("\n[Answer interrupted]\n")
             return None
-        print(f"\n({time.monotonic() - start:.0f}s)\n")
+        print("\n" + ui.style(f"({time.monotonic() - start:.0f}s)", 'dim') + "\n")
         return ''.join(parts)
 
     def interactive_chat(self, transcript_file):
@@ -313,11 +315,11 @@ Please wait for the user's question about the video."""
             num_ctx = context_size(chat_history, max_context)
             transcript_tokens = int(len(transcript_content) / CHARS_PER_TOKEN)
             if max_context and transcript_tokens + ANSWER_TOKENS > max_context:
-                print(f"\nWarning: the transcript (~{transcript_tokens} tokens) is longer than the "
+                ui.warn(f"\nWarning: the transcript (~{transcript_tokens} tokens) is longer than the "
                       f"context of {self.model} ({max_context} tokens); its beginning will be cut off.")
 
             # Display model badge with running indicator
-            print(f"\nChat session started with [{self.model}▲]. Type 'exit' to end the session.\n")
+            print(f"Chat session started with [{ui.style(self.model, 'bold')}▲]. Type 'exit' to end the session.\n")
             print(f"Context: {num_ctx} tokens (transcript ~{transcript_tokens} tokens).")
             print("The AI has been provided with the video transcript. You can now ask questions about it.\n")
 
@@ -326,7 +328,7 @@ Please wait for the user's question about the video."""
             questions = 0
             while True:
                 try:
-                    user_input = input("User: ").strip()
+                    user_input = input(ui.style("User: ", 'bold', 'green')).strip()
                     
                     # Skip empty input
                     if not user_input:
@@ -334,7 +336,7 @@ Please wait for the user's question about the video."""
                         
                     # Check for various exit commands
                     if user_input.lower() in ["exit", "quit", "bye", "/bye"]:
-                        print("Assistant: Goodbye!")
+                        print(ui.style("Assistant: ", 'bold', 'magenta') + "Goodbye!")
                         break
                     
                     # Add user message to chat history
@@ -359,7 +361,7 @@ Please wait for the user's question about the video."""
                     print("\nChat session terminated.")
                     break
                 except Exception as e:
-                    print(f"\nError during chat: {str(e)}")
+                    ui.error(f"\nError during chat: {str(e)}")
                     print("Please try again or type 'exit' to end the session.")
         except Exception as e:
             raise Exception(f'Failed to start chat session: {str(e)}')

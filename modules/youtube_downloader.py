@@ -10,6 +10,11 @@ import os
 import shutil
 
 try:
+    from . import ui
+except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
+    import ui
+
+try:
     import yt_dlp
 except ImportError:
     raise ImportError(
@@ -150,7 +155,7 @@ class YouTubeDownloader:
         """
         installed_version = getattr(yt_dlp.version, '__version__', '0')
         if _parse_yt_dlp_version(installed_version) < _MIN_YTDLP_VERSION:
-            print(
+            ui.warn(
                 f"Warning: yt-dlp {installed_version} is outdated. "
                 f"YouTube downloads often fail with HTTP 403 on old versions. "
                 f'Upgrade with: pip install -U "yt-dlp[default]"'
@@ -163,7 +168,7 @@ class YouTubeDownloader:
             )
             print(f"Using JavaScript runtime(s) for YouTube: {available}")
         else:
-            print(
+            ui.warn(
                 "Warning: no JavaScript runtime found (Deno recommended, Node also works). "
                 "YouTube extraction without one is deprecated and often returns HTTP 403. "
                 "See https://github.com/yt-dlp/yt-dlp/wiki/EJS"
@@ -190,7 +195,7 @@ class YouTubeDownloader:
                     raise Exception(
                         f'Error downloading the video: {error_text}. Please check if the URL is valid.'
                     )
-                print(f"YouTube returned 403 Forbidden ({error_text}). Trying another client...")
+                ui.warn(f"YouTube returned 403 Forbidden ({error_text}). Trying another client...")
             except Exception as e:
                 raise Exception(f'Unexpected error while downloading: {str(e)}')
 

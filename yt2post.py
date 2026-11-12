@@ -21,6 +21,7 @@ Notes:
 
 import argparse
 import gc
+import json
 import sys
 import os
 import argcomplete
@@ -31,6 +32,7 @@ from modules.youtube_downloader import YouTubeDownloader
 from modules.transcriber import Transcriber
 from modules.ollama_manager import OllamaManager
 from modules.clipboard import youtube_url_from_clipboard
+from modules import ui
 
 # config.json and its relative directories are relative to this script, so the
 # program can be started from any directory (e.g. through a shell alias).
@@ -46,15 +48,16 @@ def get_input_from_clipboard_or_prompt():
     """Return the YouTube URL in the clipboard, or ask the user for a URL or mp3 file."""
     url = youtube_url_from_clipboard()
     if url:
-        print(f"Using YouTube URL from clipboard: {url}")
+        print(f"Using YouTube URL from clipboard: {ui.style(url, 'bold')}")
         return url
     try:
-        value = input("No YouTube URL in the clipboard. Enter a YouTube URL or .mp3 file: ").strip()
+        value = input(ui.style("No YouTube URL in the clipboard. ", 'yellow')
+                      + "Enter a YouTube URL or .mp3 file: ").strip()
     except (EOFError, KeyboardInterrupt):
         print()
         sys.exit(1)
     if not value:
-        print("No input given.")
+        ui.error("No input given.")
         sys.exit(1)
     return value
 
@@ -75,127 +78,104 @@ def main():
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
 
+    if not (args.transcribe or args.chat or args.full):
+        parser.print_help()
+        sys.exit(1)
+
     # No URL given: take the YouTube URL from the clipboard, or ask for it
     if (args.transcribe or args.full) and not args.url_or_input:
         args.url_or_input = get_input_from_clipboard_or_prompt()
 
     try:
-        # Initialize configuration and required components
-        config_manager = ConfigManager(os.path.join(BASE_DIR, 'config.json'))
-        tmp_dir = project_path(config_manager.read_config('tmp_directory'))
-        work_dir = project_path(config_manager.read_config('work_directory'))
-        directory_manager = DirectoryManager(tmp_directory=tmp_dir, work_directory=work_dir)
-        
-        # Initialize YouTube downloader with error handling
-        try:
-            youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir)
-        except (ImportError, RuntimeError) as e:
-            print(f"\nDependency Error: {str(e)}")
-            sys.exit(1)
-
-        chat_manager = None
-        # Only choose an Ollama model if chat or full mode is required
-        if args.chat or args.full:
-            try:
-                model_name = OllamaManager().choose_model(ask=args.model_select)
-                print(f"\nOllama model: {model_name}")
-                chat_manager = OllamaManager(model=model_name)
-            except Exception as e:
-                print(f"\n{e}")
-                sys.exit(1)
-
-        # Validate command-line arguments
-        if not (args.transcribe or args.chat or args.full):
-            parser.print_help()
-            sys.exit(1) 
-        
-        # Handle transcription-only mode
-        elif args.transcribe:
-            try:
-                transcriber = Transcriber(work_directory=work_dir)
-                input_path = args.url_or_input
-                if input_path and input_path.lower().endswith('.mp3') and os.path.isfile(input_path):
-                    # Use local mp3 file and generate minimal metadata JSON
-                    import json
-                    base = os.path.splitext(os.path.basename(input_path))[0]
-                    json_file = os.path.join(tmp_dir, f"{base}.info.json")
-                    if not os.path.exists(json_file):
-                        # Extract metadata from mp3 using mutagen
-                        try:
-                            from mutagen.easyid3 import EasyID3
-                            audio = EasyID3(input_path)
-                            title = audio.get('title', [base])[0]
-                            author = audio.get('artist', ['Unknown'])[0]
-                            description = audio.get('comment', [''])[0]
-                        except Exception:
-                            title = base
-                            author = "Unknown"
-                            description = ""
-                        meta = {"title": title, "author": author, "description": description}
-                        with open(json_file, 'w', encoding='utf-8') as f:
-                            json.dump(meta, f)
-                    audio_file = input_path
-                    youtube_url = input_path  # For transcript content, just pass the file path
-                else:
-                    audio_file, json_file = youtube_downloader.download_audio(input_path)
-                    youtube_url = input_path
-                transcript_file = transcriber.create_transcript_content(audio_file, json_file, youtube_url)
-                print(f"Transcript saved to: {os.path.abspath(transcript_file)}")
-            except Exception as e:
-                print(f"\nError during transcription process: {str(e)}")
-                sys.exit(1)
-
-        # Handle chat-only mode
-        elif args.chat:
-            try:
-                chat_manager.interactive_chat(args.url_or_input)
-            except Exception as e:
-                print(f"\nError during chat process: {str(e)}")
-                sys.exit(1)
-
-        # Handle full process mode (download, transcribe, and chat)
-        elif args.full:
-            try:
-                transcriber = Transcriber(work_directory=work_dir)
-                input_path = args.url_or_input
-                if input_path and input_path.lower().endswith('.mp3') and os.path.isfile(input_path):
-                    # Use local mp3 file and generate minimal metadata JSON
-                    import json
-                    base = os.path.splitext(os.path.basename(input_path))[0]
-                    json_file = os.path.join(tmp_dir, f"{base}.info.json")
-                    if not os.path.exists(json_file):
-                        # Extract metadata from mp3 using mutagen
-                        try:
-                            from mutagen.easyid3 import EasyID3
-                            audio = EasyID3(input_path)
-                            title = audio.get('title', [base])[0]
-                            author = audio.get('artist', ['Unknown'])[0]
-                            description = audio.get('comment', [''])[0]
-                        except Exception:
-                            title = base
-                            author = "Unknown"
-                            description = ""
-                        meta = {"title": title, "author": author, "description": description}
-                        with open(json_file, 'w', encoding='utf-8') as f:
-                            json.dump(meta, f)
-                    audio_file = input_path
-                    youtube_url = input_path  # For transcript content, just pass the file path
-                else:
-                    audio_file, json_file = youtube_downloader.download_audio(input_path)
-                    youtube_url = input_path
-                transcript_file = transcriber.create_transcript_content(audio_file, json_file, youtube_url)
-                print(f"Transcript saved to: {os.path.abspath(transcript_file)}")
-                # Free the Whisper model's GPU memory for the Ollama model
-                del transcriber
-                gc.collect()
-                chat_manager.interactive_chat(transcript_file)
-            except Exception as e:
-                print(f"\nError during full process: {str(e)}")
-                sys.exit(1)
-
-    except Exception as e:
-        print(f"\nAn unexpected error occurred: {str(e)}")
+        run(args)
+    except KeyboardInterrupt:
+        ui.error("\nInterrupted.")
         sys.exit(1)
+    except Exception as e:
+        ui.error(f"\nError: {e}")
+        sys.exit(1)
+
+
+def is_local_mp3(path):
+    return bool(path) and path.lower().endswith('.mp3') and os.path.isfile(path)
+
+
+def mp3_metadata_file(mp3_file, tmp_dir):
+    """Write the metadata JSON of a local mp3 file (from its ID3 tags) and return its path."""
+    base = os.path.splitext(os.path.basename(mp3_file))[0]
+    try:
+        from mutagen.easyid3 import EasyID3
+        tags = EasyID3(mp3_file)
+        title = tags.get('title', [base])[0]
+        author = tags.get('artist', ['Unknown'])[0]
+        description = tags.get('comment', [''])[0]
+    except Exception:
+        title, author, description = base, "Unknown", ""
+    json_file = os.path.join(tmp_dir, f"{base}.info.json")
+    with open(json_file, 'w', encoding='utf-8') as f:
+        # same keys as the YouTube metadata written by yt-dlp
+        json.dump({"title": title, "uploader": author, "description": description}, f)
+    return json_file
+
+
+def run(args):
+    """Run the steps of the chosen mode, numbered as they go: [2/4] ..."""
+    transcribe = args.transcribe or args.full
+    chat = args.chat or args.full
+    local_mp3 = transcribe and is_local_mp3(args.url_or_input)
+
+    names = []
+    if chat:
+        names.append("Choosing the Ollama model")
+    if transcribe:
+        names.append("Loading the transcription model")
+        if not local_mp3:
+            names.append("Downloading the audio from YouTube")
+        names.append("Transcribing the audio")
+    if chat:
+        names.append("Chatting about the transcript")
+    steps = ui.Steps(names)
+
+    config_manager = ConfigManager(os.path.join(BASE_DIR, 'config.json'))
+    tmp_dir = project_path(config_manager.read_config('tmp_directory'))
+    work_dir = project_path(config_manager.read_config('work_directory'))
+    DirectoryManager(tmp_directory=tmp_dir, work_directory=work_dir)
+
+    youtube_downloader = None
+    if transcribe and not local_mp3:
+        youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir)
+
+    chat_manager = None
+    if chat:
+        # Chosen first, so the user can then leave during the long steps
+        steps.next()
+        model_name = OllamaManager().choose_model(ask=args.model_select)
+        print(f"Ollama model: {ui.style(model_name, 'bold')}")
+        chat_manager = OllamaManager(model=model_name)
+
+    transcript_file = args.url_or_input
+    if transcribe:
+        steps.next()
+        transcriber = Transcriber(work_directory=work_dir)
+
+        source = args.url_or_input
+        if local_mp3:
+            audio_file, json_file = source, mp3_metadata_file(source, tmp_dir)
+        else:
+            steps.next(source)
+            audio_file, json_file = youtube_downloader.download_audio(source)
+
+        steps.next()
+        transcript_file = transcriber.create_transcript_content(audio_file, json_file, source)
+        ui.success(f"Transcript saved to: {os.path.abspath(transcript_file)}")
+        # Free the Whisper model's GPU memory for the Ollama model
+        del transcriber
+        gc.collect()
+
+    if chat:
+        steps.next()
+        chat_manager.interactive_chat(transcript_file)
+
 
 if __name__ == '__main__':
     main()

@@ -88,6 +88,12 @@ source ~/.bashrc
 `yt` works from any directory: `config.json`, `tmp/` and `work/` are always taken from the
 program's directory.
 
+### Output
+
+Each run shows its main steps numbered and in colour (`[2/3] Downloading the audio from
+YouTube`), the transcript path in green at the end, and warnings in yellow. Set the standard
+`NO_COLOR=1` environment variable to turn colours off.
+
 ### All options
 
 ```bash
@@ -207,6 +213,7 @@ YouTube2Post/
 │   ├── ollama_manager.py       # AI model interaction
 │   ├── progress.py             # Spinner and live progress line
 │   ├── transcriber.py          # Audio transcription
+│   ├── ui.py                   # Colours and numbered steps
 │   └── youtube_downloader.py   # YouTube video processing
 ├── tests/                      # Test suite
 ├── config.json                # Configuration file

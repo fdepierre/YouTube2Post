@@ -15,9 +15,11 @@ from faster_whisper import BatchedInferencePipeline, WhisperModel
 try:
     from .device_selector import select_device, save_result
     from .progress import Spinner
+    from . import ui
 except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
     from device_selector import select_device, save_result
     from progress import Spinner
+    import ui
 
 
 def _hms(seconds):
@@ -69,7 +71,7 @@ class Transcriber:
             if device == 'cpu':
                 raise
             # GPU worked before but not now (driver/library change): fall back to CPU
-            print(f"GPU initialisation failed ({e}); falling back to CPU.")
+            ui.warn(f"GPU initialisation failed ({e}); falling back to CPU.")
             save_result('cpu')
             self._load('cpu', 'int8')
         print(f"Using device: {self.device} (model: {self.model_name})")
@@ -138,7 +140,7 @@ class Transcriber:
             if self.device == 'cpu':
                 raise
             # e.g. a GPU with too little memory for the large model
-            print(f"GPU transcription failed ({e}); retrying on CPU.")
+            ui.warn(f"GPU transcription failed ({e}); retrying on CPU.")
             del self.pipeline, self.model
             self._load('cpu', 'int8')
             print(f"Using device: {self.device} (model: {self.model_name})")
