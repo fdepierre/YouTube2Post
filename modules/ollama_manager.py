@@ -12,11 +12,14 @@ The module is designed to be both user-friendly for interactive use and
 robust for programmatic integration.
 """
 
-import itertools
-import threading
 import time
 
 from ollama import Client
+
+try:
+    from .progress import Spinner
+except ImportError:  # imported as a top-level module
+    from progress import Spinner
 
 # Ollama only reads the first few thousand tokens of a prompt by default
 # (num_ctx), so a long transcript would be cut off. The context is sized from
@@ -36,36 +39,6 @@ def context_size(messages, max_context=None):
     if max_context:
         size = min(size, max_context)
     return size
-
-
-class _WaitIndicator:
-    """Show a spinner with the elapsed time until the first words of the answer."""
-
-    def __init__(self, label):
-        self.label = label
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-
-    def _run(self):
-        start = time.monotonic()
-        for frame in itertools.cycle('|/-\\'):
-            print(f"\r{frame} {self.label} {time.monotonic() - start:.0f}s ",
-                  end='', flush=True)
-            if self._stop.wait(0.2):
-                break
-        print("\r" + " " * (len(self.label) + 12) + "\r", end='', flush=True)
-
-    def __enter__(self):
-        self._thread.start()
-        return self
-
-    def stop(self):
-        if not self._stop.is_set():
-            self._stop.set()
-            self._thread.join()
-
-    def __exit__(self, *exc):
-        self.stop()
 
 
 class OllamaManager:
@@ -261,7 +234,7 @@ class OllamaManager:
                  else "Preparing the answer...")
         parts = []
         start = time.monotonic()
-        indicator = _WaitIndicator(label)
+        indicator = Spinner(label)
         try:
             with indicator:
                 stream = self.client.chat(

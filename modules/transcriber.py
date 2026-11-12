@@ -14,8 +14,10 @@ from faster_whisper import BatchedInferencePipeline, WhisperModel
 
 try:
     from .device_selector import select_device, save_result
+    from .progress import Spinner
 except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
     from device_selector import select_device, save_result
+    from progress import Spinner
 
 
 def _hms(seconds):
@@ -84,28 +86,40 @@ class Transcriber:
         self.pipeline = BatchedInferencePipeline(model=self.model)
 
     def _transcribe_text(self, audio_file):
-        print("Preparing audio (decoding, speech and language detection)...", flush=True)
-        segments, info = self.pipeline.transcribe(audio_file, batch_size=self.BATCH_SIZE)
+        with Spinner("Preparing audio (decoding, speech and language detection)...") as spinner:
+            segments, info = self.pipeline.transcribe(audio_file, batch_size=self.BATCH_SIZE)
+            spinner.stop(keep=f"Audio prepared in {_hms(time.monotonic() - spinner.start)}")
         duration = getattr(info, 'duration', 0) or 0
         if duration:
             print(f"Transcribing {_hms(duration)} of audio "
                   f"(language: {getattr(info, 'language', '?')}) with {self.model_name} on {self.device}...")
-        # Segments are generated lazily, batch by batch: report progress as they
-        # arrive (errors also surface here, not in transcribe()).
+
+        # Segments are generated lazily, batch by batch (errors also surface
+        # here, not in transcribe()). The spinner redraws the progress line
+        # continuously from the position of the last segment received.
+        # The remaining time is estimated when a batch arrives, then counts
+        # down until the next one (instead of growing while waiting for it).
+        state = {'position': 0.0, 'eta': None, 'at': 0.0}
+
+        def progress(elapsed):
+            if not duration:
+                return f"elapsed {_hms(elapsed)}"
+            done = min(state['position'] / duration, 1.0)
+            line = f"{done:4.0%}  {_hms(state['position'])} / {_hms(duration)}  elapsed {_hms(elapsed)}"
+            if state['eta'] is not None:
+                line += f"  remaining ~{_hms(max(state['eta'] - (elapsed - state['at']), 0))}"
+            return line
+
         texts = []
-        start = time.monotonic()
-        for segment in segments:
-            texts.append(segment.text)
-            if duration:
-                done = min(segment.end / duration, 1.0)
-                elapsed = time.monotonic() - start
-                eta = elapsed / done - elapsed if done > 0.02 else None
-                print(f"\r  {done:4.0%}  {_hms(segment.end)} / {_hms(duration)}"
-                      f"  elapsed {_hms(elapsed)}"
-                      + (f"  remaining ~{_hms(eta)}" if eta is not None else "")
-                      + " " * 4, end="", flush=True)
-        if duration:
-            print(f"\r  100%  done in {_hms(time.monotonic() - start)}" + " " * 40)
+        with Spinner(progress) as spinner:
+            for segment in segments:
+                texts.append(segment.text)
+                elapsed = time.monotonic() - spinner.start
+                state['position'] = segment.end
+                done = min(segment.end / duration, 1.0) if duration else 0
+                if done > 0.02:
+                    state['eta'], state['at'] = elapsed / done - elapsed, elapsed
+            spinner.stop(keep=f"  100%  done in {_hms(time.monotonic() - spinner.start)}")
         return " ".join(texts)
 
     def transcribe_audio(self, audio_file):

@@ -205,6 +205,7 @@ YouTube2Post/
 │   ├── device_selector.py      # CPU/GPU detection for transcription
 │   ├── directory_manager.py    # File and directory management
 │   ├── ollama_manager.py       # AI model interaction
+│   ├── progress.py             # Spinner and live progress line
 │   ├── transcriber.py          # Audio transcription
 │   └── youtube_downloader.py   # YouTube video processing
 ├── tests/                      # Test suite
