@@ -31,6 +31,15 @@ from modules.transcriber import Transcriber
 from modules.ollama_manager import OllamaManager
 from modules.clipboard import youtube_url_from_clipboard
 
+# config.json and its relative directories are relative to this script, so the
+# program can be started from any directory (e.g. through a shell alias).
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def project_path(path):
+    """Return path as an absolute path, relative ones being taken from BASE_DIR."""
+    return os.path.normpath(os.path.join(BASE_DIR, os.path.expanduser(path)))
+
 
 def get_input_from_clipboard_or_prompt():
     """Return the YouTube URL in the clipboard, or ask the user for a URL or mp3 file."""
@@ -71,9 +80,9 @@ def main():
 
     try:
         # Initialize configuration and required components
-        config_manager = ConfigManager()
-        tmp_dir = config_manager.read_config('tmp_directory')
-        work_dir = config_manager.read_config('work_directory')
+        config_manager = ConfigManager(os.path.join(BASE_DIR, 'config.json'))
+        tmp_dir = project_path(config_manager.read_config('tmp_directory'))
+        work_dir = project_path(config_manager.read_config('work_directory'))
         directory_manager = DirectoryManager(tmp_directory=tmp_dir, work_directory=work_dir)
         
         # Initialize YouTube downloader with error handling
@@ -156,7 +165,7 @@ def main():
                     audio_file, json_file = youtube_downloader.download_audio(input_path)
                     youtube_url = input_path
                 transcript_file = transcriber.create_transcript_content(audio_file, json_file, youtube_url)
-                print(f"Transcript saved to: {transcript_file}")
+                print(f"Transcript saved to: {os.path.abspath(transcript_file)}")
             except Exception as e:
                 print(f"\nError during transcription process: {str(e)}")
                 sys.exit(1)

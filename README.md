@@ -5,8 +5,10 @@ This project provides a comprehensive tool for processing YouTube videos and eng
 ## Features
 
 ### Core Functionality
-- Download audio from YouTube videos using `yt-dlp`
-- Transcribe audio to text using OpenAI's `whisper` (or process a local .mp3 file directly)
+- Download the audio of YouTube videos using `yt-dlp` (original language, small download)
+- Transcribe audio to text using `faster-whisper` (or process a local .mp3 file directly)
+- Use the GPU automatically when one works, the CPU otherwise
+- Take the YouTube URL straight from the clipboard: copy the link, run one command
 - Engage in interactive chat sessions about video content using `ollama` AI models
 
 ### Advanced Features
@@ -22,55 +24,44 @@ This project provides a comprehensive tool for processing YouTube videos and eng
    ```bash
    git clone https://github.com/fdepierre/YouTube2Post.git
    cd YouTube2Post
+   ```
 
-
-2. **Install the required packages:**
-
-   Make sure you have Python installed. Then run:
+2. **Install the required packages** (Python 3.10 or newer):
 
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Additional Setup:**
+3. **Install the external tools:**
 
-   - Ensure `yt-dlp` is installed and accessible in your PATH.
-   - Configure your `config.json` file with necessary parameters like `tmp_directory`, `work_directory`, and `model`.
+   - [FFmpeg](https://ffmpeg.org/download.html), on your PATH.
+   - A JavaScript runtime, needed by `yt-dlp` for YouTube: [Deno](https://deno.com)
+     (recommended) or Node.js, on your PATH.
 
-4. **Ollama Setup:**
+4. **Optional, NVIDIA GPU:** see [Transcription Device](#transcription-device-cpu--gpu).
 
-   Ollama must be installed and running on your local machine. To start Ollama, use:
+5. **Ollama** (only for the chat options `-c` and `-f`):
+
+   Ollama must be installed and running on your local machine, with a model started:
 
    ```bash
    ollama serve &
-   ollama run <model_version>
+   ollama run <model_name>
    ```
 
-   The model version is defined in the `config.json` file under the `"model"` key.
+   The program uses the running model (or lets you choose with `-m`).
 
 ## Usage
 
-The tool provides several command-line options for different workflows:
+### Everyday use: copy the link, type `yt`
 
-### Basic Operations
-
-```bash
-# Transcribe a YouTube video
-python yt2post.py -t <YouTube_URL>
-
-# Transcribe the YouTube video whose URL is in the clipboard
-# (copy the link in the browser, e.g. Ctrl+L Ctrl+C or right-click a thumbnail > Copy link)
-python yt2post.py -t
-
-# Transcribe a local mp3 file (no user prompts, metadata auto-extracted)
-python yt2post.py -t /path/to/audio.mp3
-
-# Chat about an existing transcript
-python yt2post.py -c <transcript_file>
-
-# Full process: download, transcribe, and chat
-python yt2post.py -f <YouTube_URL>
-```
+1. In the browser, copy the YouTube video link with `Ctrl+C`: on the video page press
+   `Ctrl+L` then `Ctrl+C` (or use the Share button > Copy), or right-click a video
+   thumbnail > *Copy link address*.
+2. In the terminal, from any directory, type `yt` (see [the alias](#shortcut-a-yt-command)).
+3. The program prints `Using YouTube URL from clipboard: ...`, downloads and transcribes the
+   video, and ends with the full path of the transcript, e.g.
+   `Transcript saved to: /home/me/YouTube2Post/work/My_video_title_transcript.txt`
 
 With `-t` or `-f` and no URL, the program reads the YouTube URL from the clipboard
 (Windows and WSL via PowerShell, macOS `pbpaste`, Linux `wl-paste`/`xclip`/`xsel`).
@@ -78,11 +69,11 @@ If the clipboard holds no YouTube URL, it asks for a URL or an mp3 file.
 
 #### Shortcut: a `yt` command
 
-To transcribe the copied video by just typing `yt`, add an alias to `~/.bashrc`
-(Linux/WSL) or `~/.zshrc` (macOS). Replace the path with your clone of the repository:
+Add an alias to `~/.bashrc` (Linux/WSL) or `~/.zshrc` (macOS), replacing the path with
+your clone of the repository:
 
 ```bash
-echo "alias yt='(cd /path/to/YouTube2Post && python yt2post.py -t)'" >> ~/.bashrc
+echo "alias yt='python /path/to/YouTube2Post/yt2post.py -t'" >> ~/.bashrc
 source ~/.bashrc
 ```
 
@@ -90,11 +81,31 @@ If you use a conda environment, let the alias run in it, so you don't have to ac
 first (replace `myenv` with your environment name):
 
 ```bash
-echo "alias yt='(cd /path/to/YouTube2Post && conda run --no-capture-output -n myenv python yt2post.py -t)'" >> ~/.bashrc
+echo "alias yt='conda run --no-capture-output -n myenv python /path/to/YouTube2Post/yt2post.py -t'" >> ~/.bashrc
 source ~/.bashrc
 ```
 
-Then copy a YouTube link in the browser and type `yt` in the terminal.
+`yt` works from any directory: `config.json`, `tmp/` and `work/` are always taken from the
+program's directory.
+
+### All options
+
+```bash
+# Transcribe the YouTube video whose URL is in the clipboard
+python yt2post.py -t
+
+# Transcribe a given YouTube video
+python yt2post.py -t <YouTube_URL>
+
+# Transcribe a local mp3 file (no user prompts, metadata auto-extracted)
+python yt2post.py -t /path/to/audio.mp3
+
+# Chat about an existing transcript
+python yt2post.py -c <transcript_file>
+
+# Full process: download, transcribe, and chat (URL from the clipboard if omitted)
+python yt2post.py -f [<YouTube_URL>]
+```
 
 ### Model Selection
 
@@ -111,20 +122,24 @@ When using the `-m` option:
 
 ## Configuration
 
-### Basic Configuration
-Create a `config.json` file in the root directory:
+The `config.json` file in the program's directory sets where files go:
 
 ```json
 {
-    "tmp_directory": "path/to/tmp",
-    "work_directory": "path/to/work",
-    "model": "llama3.2"  // Default model, can be overridden with -m option
+    "tmp_directory": "tmp",
+    "work_directory": "work"
 }
 ```
 
-### Model Configuration
-- The `model` in `config.json` specifies the default model
-- Use the `-m` option to override this and select a model at runtime
+- `tmp_directory`: downloaded audio and metadata, emptied at each run
+- `work_directory`: the transcripts (`<video_title>_transcript.txt`)
+
+Relative paths are relative to the program's directory, wherever you start it from.
+Absolute paths (or `~/...`) can be used to put the files elsewhere.
+
+### Ollama Model
+- By default, the currently running Ollama model is used
+- Use the `-m` option to select a model at runtime
 - Available models can be listed using `ollama list`
 - Running models can be viewed using `ollama ps`
 
@@ -139,6 +154,17 @@ The Whisper model depends on the device: `large-v3-turbo` on GPU (much more accu
 ~30 s for 18 min of audio, ~4 GB of GPU memory, 1.6 GB one-time download) and `base` on
 CPU (fast on any computer). If a GPU transcription fails (e.g. not enough GPU memory),
 it is retried on the CPU with `base`.
+
+To use an NVIDIA GPU, install the CUDA 12 libraries used by faster-whisper and, on Linux/WSL,
+make them findable (put the `export` line in `~/.bashrc`, or for a conda environment use
+`conda env config vars set LD_LIBRARY_PATH=...`):
+
+```bash
+pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
+export LD_LIBRARY_PATH=$(python -c 'import nvidia.cublas.lib as b, nvidia.cudnn.lib as d; print(b.__path__[0] + ":" + d.__path__[0])')
+```
+
+Then delete `~/.cache/yt2post/device.json` so the GPU test runs again.
 
 - Force a device: `YT2POST_DEVICE=cpu python yt2post.py ...` (or `cuda`)
 - Re-run the test: delete `~/.cache/yt2post/device.json`
@@ -197,5 +223,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) for downloading YouTube content.
-- [Whisper](https://github.com/openai/whisper) for audio transcription.
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and [Whisper](https://github.com/openai/whisper) for audio transcription.
 - [Ollama](https://ollama.com/) for AI chatbot interactions.
