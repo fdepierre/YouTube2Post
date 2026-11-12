@@ -1,4 +1,4 @@
-ollama>=0.4
+ollama>=0.5  # think option
 yt-dlp[default]>=2025.11.12
 faster-whisper>=1.1.0  # BatchedInferencePipeline
 av<19  # faster-whisper 1.2.1 passes metadata_errors, removed in PyAV 19

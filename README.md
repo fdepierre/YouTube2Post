@@ -142,6 +142,13 @@ Absolute paths (or `~/...`) can be used to put the files elsewhere.
 - Use the `-m` option to select a model at runtime
 - Available models can be listed using `ollama list`
 - Running models can be viewed using `ollama ps`
+- The whole transcript is sent to the model: the context size (`num_ctx`) is computed from
+  the transcript length (16k tokens for a ~45 min video), and the program prints it
+- The hidden "thinking" of reasoning models (qwen3.5, gemma4...) is turned off: it made
+  answers about 5x slower without better summaries
+- Choose a model that fits in your GPU memory with that context (`ollama ps` should show
+  `100% GPU`). E.g. on a 6 GB GPU, `qwen3.5:4b` runs fully on the GPU with 16k tokens of
+  context, while 9B and larger models spill to the CPU and answer several times slower
 
 ### Transcription Device (CPU / GPU)
 Transcription runs on the CPU by default, which works on any computer. On the first run,

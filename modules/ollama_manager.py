@@ -14,6 +14,26 @@ robust for programmatic integration.
 
 from ollama import Client
 
+# Ollama only reads the first few thousand tokens of a prompt by default
+# (num_ctx), so a long transcript would be cut off. The context is sized from
+# the conversation instead: as small as possible, because a context that does
+# not fit in GPU memory makes answers several times slower.
+CHARS_PER_TOKEN = 3.5      # measured ~4.2 on French/English transcripts; kept low as a margin
+ANSWER_TOKENS = 2048       # room for the model's answer
+CONTEXT_STEP = 8192        # round up, so the model is rarely reloaded with a new size
+MIN_CONTEXT = 8192
+
+
+def context_size(messages, max_context=None):
+    """Return a num_ctx large enough for the messages plus an answer."""
+    chars = sum(len(m['content']) for m in messages)
+    needed = int(chars / CHARS_PER_TOKEN) + ANSWER_TOKENS
+    size = max(MIN_CONTEXT, -(-needed // CONTEXT_STEP) * CONTEXT_STEP)
+    if max_context:
+        size = min(size, max_context)
+    return size
+
+
 class OllamaManager:
     """
     A class to manage Ollama AI models and facilitate interactive chat sessions.
@@ -218,6 +238,18 @@ class OllamaManager:
             print("\nOnly models marked with (▲) are currently running and available for use.")
             raise Exception("Please select a running model")
 
+    def model_details(self):
+        """Return (maximum context length or None, model supports thinking)."""
+        try:
+            details = self.client.show(self.model)
+        except Exception:
+            return None, False
+        max_context = None
+        for key, value in (details.modelinfo or {}).items():
+            if key.endswith('.context_length'):
+                max_context = int(value)
+        return max_context, 'thinking' in (details.capabilities or [])
+
     def check_ollama_running(self):
         """
         Check if the Ollama service is running and the model is available.
@@ -304,8 +336,19 @@ Please wait for the user's question about the video."""
                 {'role': 'assistant', 'content': 'I have the transcript ready. Please ask me any questions about the video.'}
             ]
 
+            max_context, can_think = self.model_details()
+            # Thinking models (qwen3.5, gemma4...) first write a long hidden
+            # reasoning: measured 5x slower for no visible gain on summaries.
+            chat_options = {'think': False} if can_think else {}
+            num_ctx = context_size(chat_history, max_context)
+            transcript_tokens = int(len(transcript_content) / CHARS_PER_TOKEN)
+            if max_context and transcript_tokens + ANSWER_TOKENS > max_context:
+                print(f"\nWarning: the transcript (~{transcript_tokens} tokens) is longer than the "
+                      f"context of {self.model} ({max_context} tokens); its beginning will be cut off.")
+
             # Display model badge with running indicator
             print(f"\nChat session started with [{self.model}▲]. Type 'exit' to end the session.\n")
+            print(f"Context: {num_ctx} tokens (transcript ~{transcript_tokens} tokens).")
             print("The AI has been provided with the video transcript. You can now ask questions about it.\n")
 
             # Start interactive chat loop
@@ -325,10 +368,13 @@ Please wait for the user's question about the video."""
                     # Add user message to chat history
                     chat_history.append({'role': 'user', 'content': user_input})
                     
-                    # Get AI response
+                    # Get AI response, with a context that holds the whole conversation
+                    num_ctx = context_size(chat_history, max_context)
                     response = self.client.chat(
                         model=self.model,
-                        messages=chat_history
+                        messages=chat_history,
+                        options={'num_ctx': num_ctx},
+                        **chat_options,
                     )
                     
                     # Extract and print assistant's response
