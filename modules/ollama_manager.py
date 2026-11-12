@@ -254,39 +254,25 @@ class OllamaManager:
         """
         Check if the Ollama service is running and the model is available.
         
-        This method performs a comprehensive check by:
-        1. Attempting to connect to the Ollama service
-        2. Verifying that the specified model exists and is accessible
-        3. Ensuring the model can process basic requests
-        
-        The check is performed by sending a simple test message ('Hello')
-        and verifying the response format.
-        
+        The check asks Ollama for the model's details, which needs no text
+        generation: sending a test message would make thinking models reason
+        for ~10 s, and load the model with a context size the chat then changes.
+
         Returns:
-            bool: True if both the Ollama service is running and the specified
-                model is available and responsive. False if the service is down
-                or unresponsive.
-            
+            bool: True if the Ollama service is running and the specified
+                model is installed. False if the service is down or unresponsive.
+
         Raises:
-            Exception: If the specified model is not available in Ollama,
-                with a helpful message suggesting to check the config.json
+            Exception: If the specified model is not available in Ollama.
         """
         try:
-            # Check if Ollama service is running
-            response = self.client.chat(
-                model=self.model,
-                messages=[{'role': 'user', 'content': 'Hello'}]
-            )
-            
-            # Verify response format
-            if not ('message' in response and 'content' in response['message']):
-                return False
-                
+            self.client.show(self.model)
             return True
-
         except Exception as e:
-            if "no such model" in str(e).lower():
-                raise Exception(f"Model {self.model} is not available. Please check your config.json and make sure it matches an available Ollama model.")
+            message = str(e).lower()
+            if "not found" in message or "no such model" in message:
+                raise Exception(f"Model {self.model} is not available. "
+                                "Check the installed models with 'ollama list'.")
             return False
 
     def interactive_chat(self, transcript_file):
