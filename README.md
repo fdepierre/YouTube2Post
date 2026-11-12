@@ -76,6 +76,26 @@ With `-t` or `-f` and no URL, the program reads the YouTube URL from the clipboa
 (Windows and WSL via PowerShell, macOS `pbpaste`, Linux `wl-paste`/`xclip`/`xsel`).
 If the clipboard holds no YouTube URL, it asks for a URL or an mp3 file.
 
+#### Shortcut: a `yt` command
+
+To transcribe the copied video by just typing `yt`, add an alias to `~/.bashrc`
+(Linux/WSL) or `~/.zshrc` (macOS). Replace the path with your clone of the repository:
+
+```bash
+echo "alias yt='(cd /path/to/YouTube2Post && python yt2post.py -t)'" >> ~/.bashrc
+source ~/.bashrc
+```
+
+If you use a conda environment, let the alias run in it, so you don't have to activate it
+first (replace `myenv` with your environment name):
+
+```bash
+echo "alias yt='(cd /path/to/YouTube2Post && conda run --no-capture-output -n myenv python yt2post.py -t)'" >> ~/.bashrc
+source ~/.bashrc
+```
+
+Then copy a YouTube link in the browser and type `yt` in the terminal.
+
 ### Model Selection
 
 ```bash
