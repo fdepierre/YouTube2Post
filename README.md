@@ -58,6 +58,10 @@ The tool provides several command-line options for different workflows:
 # Transcribe a YouTube video
 python yt2post.py -t <YouTube_URL>
 
+# Transcribe the YouTube video whose URL is in the clipboard
+# (copy the link in the browser, e.g. Ctrl+L Ctrl+C or right-click a thumbnail > Copy link)
+python yt2post.py -t
+
 # Transcribe a local mp3 file (no user prompts, metadata auto-extracted)
 python yt2post.py -t /path/to/audio.mp3
 
@@ -67,6 +71,10 @@ python yt2post.py -c <transcript_file>
 # Full process: download, transcribe, and chat
 python yt2post.py -f <YouTube_URL>
 ```
+
+With `-t` or `-f` and no URL, the program reads the YouTube URL from the clipboard
+(Windows and WSL via PowerShell, macOS `pbpaste`, Linux `wl-paste`/`xclip`/`xsel`).
+If the clipboard holds no YouTube URL, it asks for a URL or an mp3 file.
 
 ### Model Selection
 
@@ -139,6 +147,7 @@ View the coverage report at `htmlcov/index.html`
 ```
 YouTube2Post/
 ├── modules/                    # Core functionality modules
+│   ├── clipboard.py            # Read the YouTube URL from the clipboard
 │   ├── config_manager.py       # Configuration handling
 │   ├── device_selector.py      # CPU/GPU detection for transcription
 │   ├── directory_manager.py    # File and directory management

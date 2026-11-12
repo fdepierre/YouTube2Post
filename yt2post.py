@@ -29,7 +29,24 @@ from modules.directory_manager import DirectoryManager
 from modules.youtube_downloader import YouTubeDownloader
 from modules.transcriber import Transcriber
 from modules.ollama_manager import OllamaManager
+from modules.clipboard import youtube_url_from_clipboard
 
+
+def get_input_from_clipboard_or_prompt():
+    """Return the YouTube URL in the clipboard, or ask the user for a URL or mp3 file."""
+    url = youtube_url_from_clipboard()
+    if url:
+        print(f"Using YouTube URL from clipboard: {url}")
+        return url
+    try:
+        value = input("No YouTube URL in the clipboard. Enter a YouTube URL or .mp3 file: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        sys.exit(1)
+    if not value:
+        print("No input given.")
+        sys.exit(1)
+    return value
 
 
 def main():
@@ -42,10 +59,15 @@ def main():
     parser.add_argument('-c', '--chat', help='Chat with AI based on the transcript.', action='store_true')
     parser.add_argument('-f', '--full', help='Download, transcribe, and chat with AI.', action='store_true')
     parser.add_argument('-m', '--model-select', help='Select a specific Ollama model (overrides default: use the currently running model)', action='store_true')
-    parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing.', nargs='?')
+    parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing. '
+                        'With -t or -f, if omitted, the YouTube URL is taken from the clipboard.', nargs='?')
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
+
+    # No URL given: take the YouTube URL from the clipboard, or ask for it
+    if (args.transcribe or args.full) and not args.url_or_input:
+        args.url_or_input = get_input_from_clipboard_or_prompt()
 
     try:
         # Initialize configuration and required components
