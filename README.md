@@ -38,6 +38,13 @@ This project provides a comprehensive tool for processing YouTube videos and eng
    - A JavaScript runtime, needed by `yt-dlp` for YouTube: [Deno](https://deno.com)
      (recommended) or Node.js, on your PATH.
 
+   On Windows (PowerShell), both can be installed with winget, then open a new terminal:
+
+   ```powershell
+   winget install Gyan.FFmpeg.Essentials
+   winget install DenoLand.Deno
+   ```
+
 4. **Optional, NVIDIA GPU:** see [Transcription Device](#transcription-device-cpu--gpu).
 
 5. **Ollama** (only for the chat options `-c` and `-f`):

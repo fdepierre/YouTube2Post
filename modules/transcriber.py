@@ -169,7 +169,7 @@ class Transcriber:
             str: Path to the final transcript file with metadata
         """
         # Read metadata from JSON file
-        with open(json_file, 'r') as f:
+        with open(json_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             title = data.get('title', 'Unknown Title')
             author = data.get('uploader', 'Unknown Author')
@@ -179,7 +179,7 @@ class Transcriber:
         transcript_file = self.transcribe_audio(audio_file)
 
         # Read the transcript content
-        with open(transcript_file, 'r') as f:
+        with open(transcript_file, 'r', encoding='utf-8') as f:
             transcript_content = f.read()
 
         # Create the full content with metadata

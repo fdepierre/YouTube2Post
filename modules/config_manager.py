@@ -49,7 +49,7 @@ class ConfigManager:
                         doesn't exist in the configuration
         """
         try:
-            with open(self.config_file_path, 'r') as config_file:
+            with open(self.config_file_path, 'r', encoding='utf-8') as config_file:
                 config = json.load(config_file)
         except FileNotFoundError:
             raise ConfigError(f"Config file '{self.config_file_path}' not found.")

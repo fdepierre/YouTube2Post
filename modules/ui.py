@@ -68,8 +68,8 @@ def error(text):
 
 
 def duration(seconds):
-    """Format seconds as '3s', '1:05' or '1:02:03'."""
-    seconds = int(round(seconds))
+    """Format seconds as '3s', '1:05' or '1:02:03' (truncated, like the progress line)."""
+    seconds = int(seconds)
     if seconds < 60:
         return f"{seconds}s"
     h, rest = divmod(seconds, 3600)
