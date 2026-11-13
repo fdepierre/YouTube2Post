@@ -19,6 +19,33 @@ This project provides a comprehensive tool for processing YouTube videos and eng
 
 ## Installation
 
+### Windows: everything with winget
+
+In PowerShell, install the tools (each command can be run again safely):
+
+```powershell
+winget install --id Git.Git -e
+winget install --id Python.Python.3.12 -e
+winget install --id Gyan.FFmpeg.Essentials -e
+winget install --id DenoLand.Deno -e
+winget install --id Ollama.Ollama -e    # only for the chat options -c and -f
+```
+
+**Close and reopen PowerShell** (so the new commands are on the PATH), then:
+
+```powershell
+git clone https://github.com/fdepierre/YouTube2Post.git
+cd YouTube2Post
+python -m pip install -r requirements.txt
+ollama pull qwen3.5:4b                  # only for the chat options -c and -f
+python yt2post.py -t                    # transcribes the YouTube link copied in the browser
+```
+
+Python 3.12 is the version tested on Windows. Transcription runs there on the CPU, with the
+`base` model (the [GPU setup](#transcription-device-cpu--gpu) is documented for Linux/WSL).
+
+### All systems
+
 1. **Clone the repository:**
 
    ```bash
@@ -38,12 +65,7 @@ This project provides a comprehensive tool for processing YouTube videos and eng
    - A JavaScript runtime, needed by `yt-dlp` for YouTube: [Deno](https://deno.com)
      (recommended) or Node.js, on your PATH.
 
-   On Windows (PowerShell), both can be installed with winget, then open a new terminal:
-
-   ```powershell
-   winget install Gyan.FFmpeg.Essentials
-   winget install DenoLand.Deno
-   ```
+   On Windows, see the [winget commands](#windows-everything-with-winget) above.
 
 4. **Optional, NVIDIA GPU:** see [Transcription Device](#transcription-device-cpu--gpu).
 
