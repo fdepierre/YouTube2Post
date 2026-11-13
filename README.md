@@ -94,24 +94,26 @@ Each run shows its main steps numbered, then the result of each one:
 
 ```
 [1/3] Loading the transcription model
-  ✔ large-v3-turbo on CUDA (4s)
+  ✓ large-v3-turbo on CUDA (4s)
 
 [2/3] Downloading the audio from YouTube https://youtu.be/...
-  ✔ Video title, 7.1 MB (3s)
+  ✓ Video title, 7.1 MB (3s)
 
 [3/3] Transcribing the audio
   Audio prepared in 0:07
   Transcribing 18:17 of audio (language: fr)...
-  ✔ 18:17 of audio transcribed (fr) (26s)
+  ✓ 18:17 of audio transcribed (fr) (26s)
 
-Transcript saved to: /path/to/YouTube2Post/work/Video_title_transcript.txt
+Transcript saved to:
+  Dir:  /path/to/YouTube2Post/work/
+  File: Video_title_transcript.txt
 ```
 
 - While a step runs, a spinning line shows its progress: size, speed and remaining time
   while downloading (network retries are shown in yellow), position and remaining time
   while transcribing.
 - `-v` / `--verbose` shows the detailed log instead (e.g. yt-dlp's), to investigate a problem.
-- Colours (step numbers, ✔, warnings in yellow, errors in red) and animations are used only
+- Colours (step numbers, ✓, warnings in yellow, errors in red) and animations are used only
   in a terminal: redirected to a file, the output is plain text. Set the standard
   `NO_COLOR=1` environment variable to turn colours off.
 

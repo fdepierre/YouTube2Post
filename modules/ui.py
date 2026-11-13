@@ -46,6 +46,14 @@ def success(text):
     print(style(text, 'bold', 'green'))
 
 
+def saved_file(title, path):
+    """Print where a file was saved, directory and file name on separate lines."""
+    directory, name = os.path.split(os.path.abspath(path))
+    print(f"\n{style(title, 'bold', 'green')}")
+    print(f"  {style('Dir: ', 'dim')} {directory}{os.sep}")
+    print(f"  {style('File:', 'dim')} {style(name, 'bold')}")
+
+
 def warn(text):
     print(style(text, 'yellow'))
 
@@ -67,7 +75,7 @@ def duration(seconds):
 class Steps:
     """
     Print the main steps of a run, numbered ('[2/4] Downloading the audio'),
-    and their result once done ('  ✔ 7.1 MB downloaded (3s)').
+    and their result once done ('  ✓ 7.1 MB downloaded (3s)').
     """
 
     def __init__(self, names):
@@ -87,4 +95,4 @@ class Steps:
     def done(self, result):
         """Print the result of the current step with its duration."""
         took = duration(time.monotonic() - self.started)
-        print(f"  {style('✔', 'bold', 'green')} {result} {style(f'({took})', 'dim')}")
+        print(f"  {style('✓', 'bold', 'green')} {result} {style(f'({took})', 'dim')}")

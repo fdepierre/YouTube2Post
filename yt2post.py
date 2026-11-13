@@ -173,7 +173,7 @@ def run(args):
         transcript_file = transcriber.create_transcript_content(audio_file, json_file, source)
         steps.done(f"{ui.duration(transcriber.audio_duration)} of audio transcribed"
                    + (f" ({transcriber.language})" if transcriber.language else ""))
-        ui.success(f"\nTranscript saved to: {os.path.abspath(transcript_file)}")
+        ui.saved_file("Transcript saved to:", transcript_file)
         # Free the Whisper model's GPU memory for the Ollama model
         del transcriber
         gc.collect()

@@ -38,10 +38,20 @@ class TestSteps(unittest.TestCase):
             steps = ui.Steps(['Download'])
             steps.next()
             steps.done('7.1 MB')
-        self.assertTrue(out.getvalue().endswith('  ✔ 7.1 MB (0s)\n'))
+        self.assertTrue(out.getvalue().endswith('  ✓ 7.1 MB (0s)\n'))
 
     def test_duration(self):
         self.assertEqual([ui.duration(s) for s in (3.4, 65, 3723)], ['3s', '1:05', '1:02:03'])
+
+
+class TestSavedFile(unittest.TestCase):
+    def test_directory_and_file_on_separate_lines(self):
+        out = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True), patch.object(sys, 'stdout', out):
+            ui.saved_file('Transcript saved to:', '/data/work/My_video_transcript.txt')
+        self.assertEqual(out.getvalue(), '\nTranscript saved to:\n'
+                                         '  Dir:  /data/work/\n'
+                                         '  File: My_video_transcript.txt\n')
 
 
 if __name__ == '__main__':
