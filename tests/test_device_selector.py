@@ -27,7 +27,7 @@ class TestDeviceSelector(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_env_override_skips_detection(self):
-        with patch.object(ds, "gpu_works") as probe:
+        with patch.object(ds, "gpu_test") as probe:
             os.environ["YT2POST_DEVICE"] = "cpu"
             self.assertEqual(ds.select_device(), ds.CPU)
             os.environ["YT2POST_DEVICE"] = "cuda"
@@ -35,26 +35,48 @@ class TestDeviceSelector(unittest.TestCase):
             probe.assert_not_called()
 
     def test_first_run_probes_and_caches(self):
-        with patch.object(ds, "gpu_works", return_value=True) as probe:
+        with patch.object(ds, "gpu_test", return_value=(True, "")) as probe:
             self.assertEqual(ds.select_device(), ds.CUDA)
             self.assertEqual(ds.select_device(), ds.CUDA)
             probe.assert_called_once()  # second call uses the cache
 
     def test_gpu_failure_selects_cpu(self):
-        with patch.object(ds, "gpu_works", return_value=False):
+        with patch.object(ds, "gpu_test", return_value=(False, "no CUDA GPU found")):
             self.assertEqual(ds.select_device(), ds.CPU)
 
     def test_cache_from_other_environment_is_ignored(self):
         ds.save_result("cuda")
         with patch.object(ds, "_fingerprint", return_value={"host": "other", "python": "x", "ctranslate2": "0"}), \
-             patch.object(ds, "gpu_works", return_value=False) as probe:
+             patch.object(ds, "gpu_test", return_value=(False, "no CUDA GPU found")) as probe:
             self.assertEqual(ds.select_device(), ds.CPU)
             probe.assert_called_once()
 
     def test_unwritable_cache_does_not_fail(self):
         with patch.object(ds, "CACHE_FILE", "/proc/nonexistent/device.json"), \
-             patch.object(ds, "gpu_works", return_value=False):
+             patch.object(ds, "gpu_test", return_value=(False, "no CUDA GPU found")):
             self.assertEqual(ds.select_device(), ds.CPU)
+
+    def test_timeout_is_not_cached(self):
+        # e.g. the first load of freshly installed CUDA DLLs on Windows
+        with patch.object(ds, "gpu_test", return_value=(False, "timeout")), patch("builtins.print"):
+            self.assertEqual(ds.select_device(), ds.CPU)
+        self.assertFalse(os.path.exists(self.cache))
+
+    def test_failure_reason_is_shown(self):
+        with patch.object(ds, "gpu_test", return_value=(False, "cublas64_12.dll not found")), \
+             patch("builtins.print") as printed:
+            ds.select_device()
+        self.assertIn("cublas64_12.dll not found", printed.call_args.args[0])
+
+    def test_installing_cuda_libraries_triggers_a_new_test(self):
+        with patch.object(ds, "gpu_test", return_value=(False, "x")), patch("builtins.print"):
+            ds.select_device()
+        installed = dict(ds._fingerprint())
+        installed["cuda_libraries"] = {"nvidia-cublas-cu12": "12.9", "nvidia-cudnn-cu12": "9.28"}
+        with patch.object(ds, "_fingerprint", return_value=installed), \
+             patch.object(ds, "gpu_test", return_value=(True, "")) as probe, patch("builtins.print"):
+            self.assertEqual(ds.select_device(), ds.CUDA)
+        probe.assert_called_once()
 
 
 if __name__ == '__main__':

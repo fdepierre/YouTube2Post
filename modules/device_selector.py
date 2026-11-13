@@ -111,23 +111,39 @@ def save_result(device):
         pass  # Caching is an optimisation only; never fail because of it.
 
 
-def gpu_works(timeout=180):
-    """Return True if faster-whisper can actually transcribe on CUDA."""
+def gpu_test(timeout=300):
+    """
+    Test whether faster-whisper can actually transcribe on CUDA.
+
+    Returns (works, reason): reason explains a failure in a few words, and is
+    'timeout' when the test took too long (e.g. the first load of freshly
+    installed CUDA libraries, scanned by an antivirus): worth trying again.
+    """
     try:
         import ctranslate2
         if ctranslate2.get_cuda_device_count() == 0:
-            return False
-    except Exception:
-        return False
+            return False, "no CUDA GPU found"
+    except Exception as e:
+        return False, f"CTranslate2 error: {e}"
     try:
         result = subprocess.run(
             [sys.executable, "-c", _PROBE_CODE],
             capture_output=True,
             timeout=timeout,
         )
-        return result.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+    except subprocess.TimeoutExpired:
+        return False, "timeout"
+    except OSError as e:
+        return False, str(e)
+    if result.returncode == 0:
+        return True, ""
+    lines = result.stderr.decode("utf-8", "replace").strip().splitlines()
+    return False, lines[-1] if lines else f"exit code {result.returncode}"
+
+
+def gpu_works(timeout=300):
+    """Return True if faster-whisper can actually transcribe on CUDA."""
+    return gpu_test(timeout)[0]
 
 
 def select_device():
@@ -147,8 +163,13 @@ def select_device():
         return CUDA if cache.get("device") == "cuda" else CPU
 
     print("First run on this computer: testing whether the GPU can be used for transcription...")
-    device = "cuda" if gpu_works() else "cpu"
-    print(f"GPU test result: {'GPU available' if device == 'cuda' else 'GPU not usable, using CPU'} "
+    works, reason = gpu_test()
+    if reason == "timeout":
+        # Not a verdict: the next run tests again
+        print("GPU test took too long; using CPU this time, the test will run again next time.")
+        return CPU
+    device = "cuda" if works else "cpu"
+    print(f"GPU test result: {'GPU available' if works else f'GPU not usable ({reason}), using CPU'} "
           f"(saved in {CACHE_FILE})")
     save_result(device)
-    return CUDA if device == "cuda" else CPU
+    return CUDA if works else CPU
