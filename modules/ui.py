@@ -54,6 +54,11 @@ def saved_file(title, path):
     print(f"  {style('File:', 'dim')} {style(name, 'bold')}")
 
 
+def note(text):
+    """Print a secondary confirmation: '  ✓ text' (dimmed)."""
+    print(f"  {style('✓', 'green')} {style(text, 'dim')}")
+
+
 def warn(text):
     print(style(text, 'yellow'))
 

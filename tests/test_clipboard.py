@@ -50,5 +50,44 @@ class TestReadClipboard(unittest.TestCase):
             self.assertIsNone(cb.youtube_url_from_clipboard())
 
 
+class TestEnvironment(unittest.TestCase):
+    def test_detection(self):
+        cases = [('win32', '10', {}, 'windows'), ('darwin', '24.0', {}, 'macos'),
+                 ('linux', '6.18.58.1-microsoft-standard-WSL2', {}, 'wsl'),
+                 ('linux', '6.8.0', {'WSL_DISTRO_NAME': 'Debian'}, 'wsl'),
+                 ('linux', '6.8.0-generic', {}, 'linux')]
+        for plat, release, env, expected in cases:
+            with patch.object(cb.sys, 'platform', plat), \
+                 patch.object(cb.platform, 'release', return_value=release), \
+                 patch.dict(cb.os.environ, env, clear=True):
+                self.assertEqual(cb.environment(), expected, (plat, release, env))
+
+
+class TestWriteClipboard(unittest.TestCase):
+    def _write(self, env, available):
+        which = lambda exe: '/bin/' + exe if exe in available else None
+        with patch.object(cb, 'environment', return_value=env), \
+             patch.object(cb.shutil, 'which', side_effect=which), \
+             patch.object(cb.subprocess, 'run', return_value=MagicMock(returncode=0)) as run:
+            ok = cb.write_clipboard('/mnt/c/Été/a.txt')
+        return ok, run
+
+    def test_wsl_uses_windows_clipboard_in_utf16(self):
+        ok, run = self._write('wsl', {'clip.exe', 'xclip'})
+        self.assertTrue(ok)
+        self.assertEqual(run.call_args.args[0], ['/bin/clip.exe'])
+        self.assertEqual(run.call_args.kwargs['input'], '/mnt/c/Été/a.txt'.encode('utf-16le'))
+
+    def test_linux_falls_back_to_xclip(self):
+        ok, run = self._write('linux', {'xclip'})
+        self.assertTrue(ok)
+        self.assertEqual(run.call_args.args[0], ['/bin/xclip', '-selection', 'clipboard'])
+
+    def test_nothing_available(self):
+        ok, run = self._write('linux', set())
+        self.assertFalse(ok)
+        run.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

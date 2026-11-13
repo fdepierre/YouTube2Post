@@ -107,7 +107,13 @@ Each run shows its main steps numbered, then the result of each one:
 Transcript saved to:
   Dir:  /path/to/YouTube2Post/work/
   File: Video_title_transcript.txt
+  ✓ Full path copied to the clipboard
 ```
+
+The full path of the transcript is copied to the clipboard, ready to paste, in the format
+of where the program runs: `C:\Users\...` in PowerShell/cmd on Windows, `/mnt/c/Users/...`
+in WSL (in the Windows clipboard, shared with Windows Terminal), `/home/...` on Linux or
+macOS (`pbcopy`, `wl-copy`, `xclip` or `xsel`).
 
 - While a step runs, a spinning line shows its progress: size, speed and remaining time
   while downloading (network retries are shown in yellow), position and remaining time

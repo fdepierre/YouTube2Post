@@ -31,7 +31,7 @@ from modules.directory_manager import DirectoryManager
 from modules.youtube_downloader import YouTubeDownloader
 from modules.transcriber import Transcriber
 from modules.ollama_manager import OllamaManager
-from modules.clipboard import youtube_url_from_clipboard
+from modules.clipboard import youtube_url_from_clipboard, write_clipboard
 from modules import ui
 
 # config.json and its relative directories are relative to this script, so the
@@ -174,6 +174,10 @@ def run(args):
         steps.done(f"{ui.duration(transcriber.audio_duration)} of audio transcribed"
                    + (f" ({transcriber.language})" if transcriber.language else ""))
         ui.saved_file("Transcript saved to:", transcript_file)
+        # The full path, in the format of where the program runs (C:\... on
+        # Windows, /mnt/c/... in WSL), ready to paste
+        if write_clipboard(os.path.abspath(transcript_file)):
+            ui.note("Full path copied to the clipboard")
         # Free the Whisper model's GPU memory for the Ollama model
         del transcriber
         gc.collect()
