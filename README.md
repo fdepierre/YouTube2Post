@@ -41,8 +41,9 @@ ollama pull qwen3.5:4b                  # only for the chat options -c and -f
 python yt2post.py -t                    # transcribes the YouTube link copied in the browser
 ```
 
-Python 3.12 is the version tested on Windows. Transcription runs there on the CPU, with the
-`base` model (the [GPU setup](#transcription-device-cpu--gpu) is documented for Linux/WSL).
+Python 3.12 is the version tested on Windows. Transcription runs on the CPU with the `base`
+model, or on an NVIDIA GPU with `large-v3-turbo` after one more command (see
+[Transcription Device](#transcription-device-cpu--gpu)).
 
 ### All systems
 
@@ -222,23 +223,30 @@ Transcription runs on the CPU by default, which works on any computer. On the fi
 the program tests once whether Faster Whisper can use a CUDA GPU (in a separate process,
 so a broken CUDA setup cannot crash it) and remembers the result in
 `~/.cache/yt2post/device.json`. The test runs again automatically on another computer or
-Python environment. If the GPU later fails to start, the program falls back to the CPU.
+Python environment, or after the CUDA libraries below are installed. If the GPU later fails to start, the program falls back to the CPU.
 
 The Whisper model depends on the device: `large-v3-turbo` on GPU (much more accurate,
 ~30 s for 18 min of audio, ~4 GB of GPU memory, 1.6 GB one-time download) and `base` on
 CPU (fast on any computer). If a GPU transcription fails (e.g. not enough GPU memory),
 it is retried on the CPU with `base`.
 
-To use an NVIDIA GPU, install the CUDA 12 libraries used by faster-whisper and, on Linux/WSL,
-make them findable (put the `export` line in `~/.bashrc`, or for a conda environment use
-`conda env config vars set LD_LIBRARY_PATH=...`):
+To use an NVIDIA GPU, install the CUDA 12 libraries used by faster-whisper (~1 GB):
 
-```bash
-pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
-export LD_LIBRARY_PATH=$(python -c 'import nvidia.cublas.lib as b, nvidia.cudnn.lib as d; print(b.__path__[0] + ":" + d.__path__[0])')
-```
+- **Windows** (PowerShell): nothing else to set up, the program finds them by itself:
 
-Then delete `~/.cache/yt2post/device.json` so the GPU test runs again.
+  ```powershell
+  python -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
+  ```
+
+- **Linux / WSL**: also make them findable (put the `export` line in `~/.bashrc`, or for a
+  conda environment use `conda env config vars set LD_LIBRARY_PATH=...`):
+
+  ```bash
+  pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
+  export LD_LIBRARY_PATH=$(python -c 'import nvidia.cublas.lib as b, nvidia.cudnn.lib as d; print(b.__path__[0] + ":" + d.__path__[0])')
+  ```
+
+The next run tests the GPU again automatically.
 
 - Force a device: `YT2POST_DEVICE=cpu python yt2post.py ...` (or `cuda`)
 - Re-run the test: delete `~/.cache/yt2post/device.json`

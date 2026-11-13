@@ -11,6 +11,13 @@ import json
 import os
 import re
 import time
+
+try:
+    from .device_selector import add_cuda_library_dirs
+except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
+    from device_selector import add_cuda_library_dirs
+add_cuda_library_dirs()  # before faster-whisper loads CTranslate2 (Windows GPU)
+
 from faster_whisper import BatchedInferencePipeline, WhisperModel
 from faster_whisper.utils import download_model
 

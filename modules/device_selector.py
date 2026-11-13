@@ -14,13 +14,40 @@ The cache is tied to the machine and Python environment, so the test runs again
 automatically if either changes. Delete the cache file to force a new test.
 
 Set the environment variable YT2POST_DEVICE=cpu (or cuda) to skip detection.
+
+The CUDA libraries faster-whisper needs (cuBLAS, cuDNN) can be installed with
+pip (nvidia-cublas-cu12, nvidia-cudnn-cu12). On Windows they are not found by
+default: add_cuda_library_dirs() makes them findable.
 """
 
+import glob
 import json
 import os
 import platform
 import subprocess
 import sys
+
+# pip packages providing the CUDA libraries used by faster-whisper
+CUDA_LIBRARY_PACKAGES = ("nvidia-cublas-cu12", "nvidia-cudnn-cu12")
+
+
+def add_cuda_library_dirs():
+    """
+    On Windows, make the CUDA DLLs installed by pip (site-packages/nvidia/*/bin)
+    findable by CTranslate2. Call before loading a model on the GPU. No effect
+    elsewhere: on Linux the libraries are found through LD_LIBRARY_PATH.
+    """
+    if sys.platform != "win32":
+        return
+    for site_dir in sys.path:
+        for dll_dir in glob.glob(os.path.join(site_dir, "nvidia", "*", "bin")):
+            try:
+                os.add_dll_directory(dll_dir)
+            except OSError:
+                continue
+            # cuDNN loads its sub-libraries itself, through PATH
+            if dll_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
 
 CACHE_FILE = os.path.join(os.path.expanduser("~"), ".cache", "yt2post", "device.json")
 
@@ -29,6 +56,12 @@ CUDA = ("cuda", "float16")
 
 # Runs in a child process: exit code 0 means faster-whisper works on the GPU.
 _PROBE_CODE = """
+import glob, os, sys
+if sys.platform == "win32":  # same as add_cuda_library_dirs()
+    for site_dir in sys.path:
+        for dll_dir in glob.glob(os.path.join(site_dir, "nvidia", "*", "bin")):
+            os.add_dll_directory(dll_dir)
+            os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
 import numpy as np
 from faster_whisper import WhisperModel
 model = WhisperModel("tiny", device="cuda", compute_type="float16")
@@ -44,10 +77,19 @@ def _fingerprint():
         ct2_version = ctranslate2.__version__
     except ImportError:
         ct2_version = None
+    # Installing the CUDA libraries later must trigger a new GPU test
+    from importlib.metadata import PackageNotFoundError, version
+    cuda_libraries = {}
+    for package in CUDA_LIBRARY_PACKAGES:
+        try:
+            cuda_libraries[package] = version(package)
+        except PackageNotFoundError:
+            cuda_libraries[package] = None
     return {
         "host": platform.node(),
         "python": sys.executable,
         "ctranslate2": ct2_version,
+        "cuda_libraries": cuda_libraries,
     }
 
 
