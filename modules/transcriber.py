@@ -6,11 +6,13 @@ It provides functionality to convert speech to text and format the output with
 metadata from the source video.
 """
 
+import contextlib
 import json
 import os
 import re
 import time
 from faster_whisper import BatchedInferencePipeline, WhisperModel
+from faster_whisper.utils import download_model
 
 try:
     from .device_selector import select_device, save_result
@@ -20,6 +22,17 @@ except ImportError:  # imported as a top-level module (tests add modules/ to sys
     from device_selector import select_device, save_result
     from progress import Spinner
     import ui
+
+
+def _model_is_downloaded(model_name):
+    """True if the Whisper model is already on disk (no download needed)."""
+    if os.path.isdir(model_name):
+        return True
+    try:
+        download_model(model_name, local_files_only=True)
+        return True
+    except Exception:
+        return False
 
 
 def _hms(seconds):
@@ -87,7 +100,15 @@ class Transcriber:
         self.model_name = self.requested_model or (
             self.GPU_MODEL if device == 'cuda' else self.CPU_MODEL
         )
-        self.model = WhisperModel(self.model_name, device=device, compute_type=compute_type)
+        # Loading takes a few seconds: show a spinner. On the first run the
+        # model is downloaded instead, with Hugging Face's own progress bars.
+        if _model_is_downloaded(self.model_name):
+            waiting = Spinner(f"Loading {self.model_name} on {device.upper()}...")
+        else:
+            print(f"  Downloading the {self.model_name} model (only the first time)...")
+            waiting = contextlib.nullcontext()
+        with waiting:
+            self.model = WhisperModel(self.model_name, device=device, compute_type=compute_type)
         # Batched inference transcribes several audio chunks at once:
         # measured ~4x faster on GPU and ~2x faster on CPU, with the same output.
         self.pipeline = BatchedInferencePipeline(model=self.model)

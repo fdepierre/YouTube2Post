@@ -20,6 +20,7 @@ class TestTranscriberModelChoice(unittest.TestCase):
             'pipeline': patch.object(tr, 'BatchedInferencePipeline'),
             'select': patch.object(tr, 'select_device'),
             'save': patch.object(tr, 'save_result'),
+            'downloaded': patch.object(tr, '_model_is_downloaded', return_value=True),
         }
         self.m = {k: p.start() for k, p in self.patches.items()}
 
@@ -63,6 +64,25 @@ class TestTranscriberModelChoice(unittest.TestCase):
                 self.assertEqual(f.read(), 'hello world')
         self.assertEqual((t.device, t.model_name), ('cpu', 'base'))
         self.m['save'].assert_not_called()  # a one-off failure keeps the GPU for next runs
+
+
+class TestModelLoadingDisplay(unittest.TestCase):
+    def _load(self, downloaded):
+        with patch.object(tr, 'WhisperModel'), patch.object(tr, 'BatchedInferencePipeline'), \
+             patch.object(tr, 'select_device', return_value=('cuda', 'float16')), \
+             patch.object(tr, '_model_is_downloaded', return_value=downloaded), \
+             patch.object(tr, 'Spinner') as spinner, patch('builtins.print') as printed:
+            tr.Transcriber(announce=False)
+        return spinner, printed
+
+    def test_spinner_while_loading_a_downloaded_model(self):
+        spinner, _ = self._load(downloaded=True)
+        spinner.assert_called_once_with('Loading large-v3-turbo on CUDA...')
+
+    def test_no_spinner_over_the_first_download_progress_bars(self):
+        spinner, printed = self._load(downloaded=False)
+        spinner.assert_not_called()
+        self.assertIn('Downloading the large-v3-turbo model', printed.call_args.args[0])
 
 
 if __name__ == '__main__':
