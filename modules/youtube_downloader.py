@@ -88,6 +88,30 @@ class _DownloadDisplay:
         pass  # raised as DownloadError and reported by the caller
 
 
+def _short_error(error):
+    """yt-dlp's error message without its 'ERROR: [youtube] <id>: ' prefix."""
+    text = str(error).strip()
+    if text.startswith('ERROR: '):
+        text = text[len('ERROR: '):]
+    if text.startswith('['):
+        text = text.split(': ', 1)[-1] if ': ' in text else text
+    return text.split(' Use --list-formats')[0].rstrip('. ')
+
+
+def _is_forbidden(error_text):
+    return 'HTTP Error 403' in error_text or '403: Forbidden' in error_text
+
+
+# Errors about the video itself: another YouTube client would not help
+_VIDEO_ERRORS = ('Video unavailable', 'This video is unavailable', 'Private video',
+                 'is not a valid URL', 'Unsupported URL', 'has been removed',
+                 'members-only', 'Sign in to confirm your age')
+
+
+def _is_video_error(error_text):
+    return any(marker in error_text for marker in _VIDEO_ERRORS)
+
+
 def _parse_yt_dlp_version(version_string):
     parts = []
     for part in version_string.split('.'):
@@ -239,46 +263,52 @@ class YouTubeDownloader:
 
         display = None if self.verbose else _DownloadDisplay()
         say = display.spinner.message if display else print
-        last_error = None
+        errors = []
+        info = None
         with display.spinner if display else contextlib.nullcontext():
             for ydl_opts in self._download_attempts(js_runtimes):
                 if display:
                     ydl_opts.update(quiet=True, noprogress=True, logger=display,
                                     progress_hooks=[display.hook])
-                player_client = (
-                    ydl_opts.get('extractor_args', {})
-                    .get('youtube', {})
-                    .get('player_client')
-                )
-                if player_client:
-                    say(f"Trying YouTube download with player_client={player_client[0]}")
-                try:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(youtube_url, download=True)
-                    last_error = None
+                client = (ydl_opts.get('extractor_args', {})
+                          .get('youtube', {}).get('player_client') or ['default'])[0]
+                # A 403 is often temporary: retry the same client once
+                tries = 2 if client == 'default' else 1
+                for attempt in range(tries):
+                    try:
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(youtube_url, download=True)
+                        break
+                    except yt_dlp.utils.DownloadError as e:
+                        error_text = _short_error(e)
+                        if _is_video_error(error_text):
+                            raise Exception(f'Error downloading the video: {error_text}. '
+                                            'Please check if the URL is valid.')
+                        errors.append(error_text)
+                        retry = attempt + 1 < tries and _is_forbidden(error_text)
+                        say(ui.style(f"Download failed with the {client} YouTube client "
+                                     f"({error_text}). "
+                                     + ("Trying again..." if retry else "Trying another client..."),
+                                     'yellow'))
+                        if not retry:
+                            break
+                    except Exception as e:
+                        raise Exception(f'Unexpected error while downloading: {str(e)}')
+                if info is not None:
                     break
-                except yt_dlp.utils.DownloadError as e:
-                    last_error = e
-                    error_text = str(e)
-                    if 'HTTP Error 403' not in error_text and '403: Forbidden' not in error_text:
-                        raise Exception(
-                            f'Error downloading the video: {error_text}. Please check if the URL is valid.'
-                        )
-                    say(ui.style(f"YouTube returned 403 Forbidden ({error_text}). "
-                                 "Trying another client...", 'yellow'))
-                except Exception as e:
-                    raise Exception(f'Unexpected error while downloading: {str(e)}')
 
-        if last_error is not None:
+        if info is None:
             hint = ''
             if not js_runtimes:
                 hint = (
                     ' Install Deno (https://deno.com) or make sure Node.js is on PATH, '
                     'then run: pip install -U "yt-dlp[default]".'
                 )
+            else:
+                hint = ' YouTube may be blocking downloads for now: try again later, or update yt-dlp.'
             raise Exception(
-                f'Error downloading the video: {str(last_error)}. '
-                f'Please check if the URL is valid.{hint}'
+                f'Error downloading the video with every YouTube client '
+                f'(first error: {errors[0] if errors else "unknown"}).{hint}'
             )
 
         # yt-dlp reports the exact paths it wrote
