@@ -6,7 +6,6 @@ It provides functionality to convert speech to text and format the output with
 metadata from the source video.
 """
 
-import contextlib
 import json
 import os
 import re
@@ -40,6 +39,28 @@ def _model_is_downloaded(model_name):
         return True
     except Exception:
         return False
+
+
+class ModelDownloadError(Exception):
+    """The Whisper model could not be downloaded (network problem, not the GPU)."""
+
+
+def _get_model(model_name, attempts=2):
+    """Return the local path of the model, downloading it if needed (one retry)."""
+    if os.path.isdir(model_name):
+        return model_name
+    if _model_is_downloaded(model_name):
+        return download_model(model_name, local_files_only=True)
+    print(f"  Downloading the {model_name} model (only the first time)...")
+    for attempt in range(attempts):
+        try:
+            return download_model(model_name)  # resumes a partial download
+        except Exception as e:
+            reason = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
+            if attempt + 1 < attempts:
+                ui.warn(f"  Download interrupted ({reason}); trying again...")
+            else:
+                raise ModelDownloadError(reason) from e
 
 
 def _hms(seconds):
@@ -91,6 +112,13 @@ class Transcriber:
         device, compute_type = select_device()
         try:
             self._load(device, compute_type)
+        except ModelDownloadError as e:
+            if device == 'cpu':
+                raise
+            # A network problem says nothing about the GPU: keep it for next time
+            ui.warn(f"Could not download the {self.model_name} model ({e}); "
+                    "using the CPU this time, the download will be tried again next time.")
+            self._load('cpu', 'int8')
         except Exception as e:
             if device == 'cpu':
                 raise
@@ -107,15 +135,11 @@ class Transcriber:
         self.model_name = self.requested_model or (
             self.GPU_MODEL if device == 'cuda' else self.CPU_MODEL
         )
-        # Loading takes a few seconds: show a spinner. On the first run the
-        # model is downloaded instead, with Hugging Face's own progress bars.
-        if _model_is_downloaded(self.model_name):
-            waiting = Spinner(f"Loading {self.model_name} on {device.upper()}...")
-        else:
-            print(f"  Downloading the {self.model_name} model (only the first time)...")
-            waiting = contextlib.nullcontext()
-        with waiting:
-            self.model = WhisperModel(self.model_name, device=device, compute_type=compute_type)
+        # The first time, the model is downloaded (with Hugging Face's own
+        # progress bars); loading it then takes a few seconds: show a spinner.
+        model_path = _get_model(self.model_name)
+        with Spinner(f"Loading {self.model_name} on {device.upper()}..."):
+            self.model = WhisperModel(model_path, device=device, compute_type=compute_type)
         # Batched inference transcribes several audio chunks at once:
         # measured ~4x faster on GPU and ~2x faster on CPU, with the same output.
         self.pipeline = BatchedInferencePipeline(model=self.model)

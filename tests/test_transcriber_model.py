@@ -21,6 +21,8 @@ class TestTranscriberModelChoice(unittest.TestCase):
             'select': patch.object(tr, 'select_device'),
             'save': patch.object(tr, 'save_result'),
             'downloaded': patch.object(tr, '_model_is_downloaded', return_value=True),
+            'download': patch.object(tr, 'download_model', side_effect=lambda name, **kw: name),
+            'spinner': patch.object(tr, 'Spinner'),
         }
         self.m = {k: p.start() for k, p in self.patches.items()}
 
@@ -66,23 +68,49 @@ class TestTranscriberModelChoice(unittest.TestCase):
         self.m['save'].assert_not_called()  # a one-off failure keeps the GPU for next runs
 
 
-class TestModelLoadingDisplay(unittest.TestCase):
-    def _load(self, downloaded):
-        with patch.object(tr, 'WhisperModel'), patch.object(tr, 'BatchedInferencePipeline'), \
+class TestModelDownload(unittest.TestCase):
+    def _load(self, downloaded, download):
+        with patch.object(tr, 'WhisperModel') as model, patch.object(tr, 'BatchedInferencePipeline'), \
              patch.object(tr, 'select_device', return_value=('cuda', 'float16')), \
+             patch.object(tr, 'save_result') as save, \
              patch.object(tr, '_model_is_downloaded', return_value=downloaded), \
+             patch.object(tr, 'download_model', side_effect=download) as dl, \
              patch.object(tr, 'Spinner') as spinner, patch('builtins.print') as printed:
-            tr.Transcriber(announce=False)
-        return spinner, printed
+            t = tr.Transcriber(announce=False)
+        return t, model, save, dl, spinner, printed
 
     def test_spinner_while_loading_a_downloaded_model(self):
-        spinner, _ = self._load(downloaded=True)
+        _, model, _, dl, spinner, _ = self._load(True, lambda name, **kw: '/cache/' + name)
         spinner.assert_called_once_with('Loading large-v3-turbo on CUDA...')
+        dl.assert_called_once_with('large-v3-turbo', local_files_only=True)  # no network
+        model.assert_called_once_with('/cache/large-v3-turbo', device='cuda', compute_type='float16')
 
-    def test_no_spinner_over_the_first_download_progress_bars(self):
-        spinner, printed = self._load(downloaded=False)
-        spinner.assert_not_called()
-        self.assertIn('Downloading the large-v3-turbo model', printed.call_args.args[0])
+    def test_first_run_downloads_then_loads(self):
+        _, _, _, dl, _, printed = self._load(False, lambda name, **kw: '/cache/' + name)
+        dl.assert_called_once_with('large-v3-turbo')
+        self.assertIn('Downloading the large-v3-turbo model', printed.call_args_list[0].args[0])
+
+    def test_interrupted_download_is_retried(self):
+        outcomes = [ConnectionError('WinError 10054'), '/cache/large-v3-turbo']
+
+        def download(name, **kw):
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+        t, _, save, _, _, _ = self._load(False, download)
+        self.assertEqual((t.device, t.model_name), ('cuda', 'large-v3-turbo'))
+        save.assert_not_called()
+
+    def test_failed_download_keeps_gpu_for_next_time(self):
+        # Windows, 2026-11-14: the connection was reset while downloading
+        def download(name, **kw):
+            if name == 'large-v3-turbo':
+                raise ConnectionError('[WinError 10054] connection reset')
+            return '/cache/' + name
+        t, _, save, _, _, _ = self._load(False, download)
+        self.assertEqual((t.device, t.model_name), ('cpu', 'base'))
+        save.assert_not_called()  # the GPU works: not recorded as 'cpu'
 
 
 if __name__ == '__main__':
