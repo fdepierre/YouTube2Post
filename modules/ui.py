@@ -9,7 +9,9 @@ coloured --help.
 """
 
 import os
+import shutil
 import sys
+import textwrap
 import time
 
 _CODES = {
@@ -58,10 +60,38 @@ def saved_file(title, path):
 verbose = False
 
 
+_DETAIL_PREFIX = "    · "
+
+
+def short_path(text):
+    """Shorten the home directory to '~' in text (paths are long)."""
+    home = os.path.expanduser("~")
+    return text.replace(home + os.sep, "~" + os.sep) if home not in ("", os.sep) else text
+
+
+def format_detail(text, stream=None):
+    """
+    Return '    · text' dimmed, with the home directory shortened. On a terminal,
+    long lines are wrapped to its width with the same indentation (instead
+    of continuing at the start of the next line).
+    """
+    stream = stream or sys.stdout
+    text = short_path(str(text).strip())
+    if hasattr(stream, 'isatty') and stream.isatty():
+        width = shutil.get_terminal_size((100, 20)).columns - 1
+        lines = textwrap.wrap(text, width=max(width, 40), initial_indent=_DETAIL_PREFIX,
+                              subsequent_indent=" " * len(_DETAIL_PREFIX),
+                              break_long_words=True, break_on_hyphens=False) or [_DETAIL_PREFIX]
+        text = "\n".join(lines)
+    else:
+        text = _DETAIL_PREFIX + text
+    return style(text, 'dim')
+
+
 def detail(text):
-    """Print a technical detail, only in verbose mode: '    · text' (dimmed)."""
+    """Print a technical detail, only in verbose mode."""
     if verbose:
-        print(style(f"    · {text}", 'dim'))
+        print(format_detail(text))
 
 
 def note(text):

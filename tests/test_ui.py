@@ -65,5 +65,20 @@ class TestDetail(unittest.TestCase):
         self.assertEqual(out.getvalue(), '    · shown\n')
 
 
+class TestFormatDetail(unittest.TestCase):
+    def test_wraps_with_indent_and_shortens_home(self):
+        class TTY(io.StringIO):
+            def isatty(self):
+                return True
+        home = os.path.expanduser('~')
+        text = 'Model files: ' + os.path.join(home, '.cache', 'x' * 60)
+        with patch.dict(os.environ, {'NO_COLOR': '1'}), \
+             patch.object(ui.shutil, 'get_terminal_size', return_value=os.terminal_size((50, 20))):
+            lines = ui.format_detail(text, TTY()).split('\n')
+        self.assertTrue(lines[0].startswith('    · Model files: ~/.cache/'))
+        self.assertTrue(all(l.startswith('      ') for l in lines[1:]))
+        self.assertTrue(all(len(l) <= 49 for l in lines))
+
+
 if __name__ == '__main__':
     unittest.main()

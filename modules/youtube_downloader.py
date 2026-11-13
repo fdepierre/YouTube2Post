@@ -6,7 +6,6 @@ It provides functionality to download videos and extract audio for transcription
 The module includes error handling for missing dependencies and download failures.
 """
 
-import contextlib
 import os
 import shutil
 
@@ -50,7 +49,8 @@ class _DownloadDisplay:
     retries and warnings are still shown, above that line (logger).
     """
 
-    def __init__(self):
+    def __init__(self, verbose=False):
+        self.verbose = verbose  # show all of yt-dlp's messages, as details
         self.state = {}
         self.spinner = Spinner(self._text)
 
@@ -78,6 +78,10 @@ class _DownloadDisplay:
     def debug(self, msg):
         if 'Got error' in msg or 'Retrying' in msg:  # network problems (e.g. ADSL)
             self.spinner.message(ui.style(msg.strip(), 'yellow'))
+        elif self.verbose and (not msg.startswith('[download] ')
+                               or msg.startswith(('[download] Destination', '[download] Sleeping'))):
+            # yt-dlp's log, as details (its progress lines are shown by the spinner)
+            self.spinner.message(ui.format_detail(msg, self.spinner.stream))
 
     info = debug
 
@@ -140,7 +144,7 @@ class YouTubeDownloader:
         
         Args:
             tmp_directory (str): Path to temporary directory for downloads
-            verbose (bool): Show yt-dlp's full log instead of a single progress line
+            verbose (bool): Also show yt-dlp's log, as detail lines
             
         Raises:
             RuntimeError: If FFmpeg is not found in system PATH
@@ -249,11 +253,8 @@ class YouTubeDownloader:
 
         js_runtimes = self._detect_js_runtimes()
         if js_runtimes:
-            if self.verbose:
-                available = ', '.join(
-                    f"{name} ({config['path']})" for name, config in js_runtimes.items()
-                )
-                print(f"Using JavaScript runtime(s) for YouTube: {available}")
+            ui.detail("JavaScript runtime(s) for YouTube: " + ', '.join(
+                f"{name} ({config['path']})" for name, config in js_runtimes.items()))
         else:
             ui.warn(
                 "Warning: no JavaScript runtime found (Deno recommended, Node also works). "
@@ -261,15 +262,14 @@ class YouTubeDownloader:
                 "See https://github.com/yt-dlp/yt-dlp/wiki/EJS"
             )
 
-        display = None if self.verbose else _DownloadDisplay()
-        say = display.spinner.message if display else print
+        display = _DownloadDisplay(verbose=self.verbose)
+        say = display.spinner.message
         errors = []
         info = None
-        with display.spinner if display else contextlib.nullcontext():
+        with display.spinner:
             for ydl_opts in self._download_attempts(js_runtimes):
-                if display:
-                    ydl_opts.update(quiet=True, noprogress=True, logger=display,
-                                    progress_hooks=[display.hook])
+                ydl_opts.update(quiet=True, noprogress=True, logger=display,
+                                progress_hooks=[display.hook])
                 client = (ydl_opts.get('extractor_args', {})
                           .get('youtube', {}).get('player_client') or ['default'])[0]
                 # A 403 is often temporary: retry the same client once
@@ -324,6 +324,5 @@ class YouTubeDownloader:
         ui.detail(f"Audio format {info.get('format_id')}: {info.get('acodec')} "
                   + (f"{abr:.0f} kbps " if abr else "") + f"in .{info.get('ext')}"
                   + (f", language {info['language']}" if info.get('language') else ""))
-        ui.detail(f"Audio file: {audio_file}")
 
         return audio_file, json_file
