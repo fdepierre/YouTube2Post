@@ -140,6 +140,12 @@ class Transcriber:
         model_path = _get_model(self.model_name)
         with Spinner(f"Loading {self.model_name} on {device.upper()}..."):
             self.model = WhisperModel(model_path, device=device, compute_type=compute_type)
+        if ui.verbose:
+            import ctranslate2
+            ui.detail(f"Model files: {model_path}")
+            ui.detail(f"Precision {compute_type}, CTranslate2 {ctranslate2.__version__}"
+                      + (f", {ctranslate2.get_cuda_device_count()} CUDA GPU(s)"
+                         if device == 'cuda' else ""))
         # Batched inference transcribes several audio chunks at once:
         # measured ~4x faster on GPU and ~2x faster on CPU, with the same output.
         self.pipeline = BatchedInferencePipeline(model=self.model)
@@ -170,6 +176,7 @@ class Transcriber:
             return line
 
         texts = []
+        started = time.monotonic()
         with Spinner(progress) as spinner:
             for segment in segments:
                 texts.append(segment.text)
@@ -178,7 +185,21 @@ class Transcriber:
                 done = min(segment.end / duration, 1.0) if duration else 0
                 if done > 0.02:
                     state['eta'], state['at'] = elapsed / done - elapsed, elapsed
+        if ui.verbose:
+            self._transcription_details(info, duration, len(texts), time.monotonic() - started)
         return " ".join(texts)
+
+    def _transcription_details(self, info, duration, segments, took):
+        """Show the language confidence, speech share, segments and speed."""
+        probability = getattr(info, 'language_probability', None)
+        if isinstance(probability, (int, float)):
+            ui.detail(f"Language {self.language} detected with {probability:.0%} confidence")
+        speech = getattr(info, 'duration_after_vad', None)
+        if duration and isinstance(speech, (int, float)):
+            ui.detail(f"Speech kept after silence removal: {_hms(speech)} of {_hms(duration)} "
+                      f"({speech / duration:.0%})")
+        ui.detail(f"{segments} segments, batches of {self.BATCH_SIZE}"
+                  + (f", {duration / took:.0f}x faster than real time" if duration and took else ""))
 
     def transcribe_audio(self, audio_file):
         """

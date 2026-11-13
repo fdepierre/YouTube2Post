@@ -86,5 +86,21 @@ class TestChatUsesContext(unittest.TestCase):
             self.assertNotIn('think', client.chat.call_args.kwargs)
 
 
+class TestAnswerDetails(unittest.TestCase):
+    def test_verbose_shows_tokens_speed_and_gpu_share(self):
+        with patch.object(om, 'Client') as client_cls:
+            client = client_cls.return_value
+            client.ps.return_value = MagicMock(models=[MagicMock(model='qwen3.5:4b', size=3.6e9, size_vram=3.6e9)])
+            manager = om.OllamaManager(model='qwen3.5:4b')
+            last = {'message': {'content': ''}, 'done': True, 'prompt_eval_count': 10435,
+                    'eval_count': 400, 'eval_duration': 8e9, 'load_duration': 1e8}
+            with patch.object(om.ui, 'verbose', True), patch.dict(os.environ, {'NO_COLOR': '1'}), \
+                 patch('builtins.print') as printed:
+                manager._answer_details(last, 16384)
+        lines = [c.args[0] for c in printed.call_args_list]
+        self.assertEqual(lines, ['    · Read 10435 new tokens, wrote 400 tokens at 50.0 tokens/s',
+                                 '    · 100% of the model on the GPU (3.6 GB with a 16384-token context)'])
+
+
 if __name__ == '__main__':
     unittest.main()

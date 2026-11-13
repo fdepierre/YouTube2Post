@@ -54,6 +54,16 @@ def saved_file(title, path):
     print(f"  {style('File:', 'dim')} {style(name, 'bold')}")
 
 
+# Set from the command line (-v): show the technical details of each step
+verbose = False
+
+
+def detail(text):
+    """Print a technical detail, only in verbose mode: '    · text' (dimmed)."""
+    if verbose:
+        print(style(f"    · {text}", 'dim'))
+
+
 def note(text):
     """Print a secondary confirmation: '  ✓ text' (dimmed)."""
     print(f"  {style('✓', 'green')} {style(text, 'dim')}")

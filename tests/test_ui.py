@@ -54,5 +54,16 @@ class TestSavedFile(unittest.TestCase):
                                          '  File: My_video_transcript.txt\n')
 
 
+class TestDetail(unittest.TestCase):
+    def test_only_in_verbose_mode(self):
+        out = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True), patch.object(sys, 'stdout', out):
+            with patch.object(ui, 'verbose', False):
+                ui.detail('hidden')
+            with patch.object(ui, 'verbose', True):
+                ui.detail('shown')
+        self.assertEqual(out.getvalue(), '    · shown\n')
+
+
 if __name__ == '__main__':
     unittest.main()

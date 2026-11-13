@@ -235,6 +235,7 @@ class OllamaManager:
         label = ("Reading the transcript and preparing the answer..." if first
                  else "Preparing the answer...")
         parts = []
+        last = None
         start = time.monotonic()
         indicator = Spinner(label)
         try:
@@ -247,6 +248,7 @@ class OllamaManager:
                     **chat_options,
                 )
                 for chunk in stream:
+                    last = chunk
                     text = chunk['message']['content']
                     if not text:
                         continue
@@ -258,8 +260,29 @@ class OllamaManager:
         except KeyboardInterrupt:
             ui.warn("\n[Answer interrupted]\n")
             return None
-        print("\n" + ui.style(f"({time.monotonic() - start:.0f}s)", 'dim') + "\n")
+        print("\n" + ui.style(f"({time.monotonic() - start:.0f}s)", 'dim'))
+        self._answer_details(last, num_ctx)
+        print()
         return ''.join(parts)
+
+    def _answer_details(self, last, num_ctx):
+        """In verbose mode, show the token counts and speed of an answer."""
+        if not ui.verbose or not last:
+            return
+        get = lambda key: last.get(key) if isinstance(last, dict) else getattr(last, key, None)
+        prompt, generated = get('prompt_eval_count'), get('eval_count')
+        eval_ns, load_ns = get('eval_duration'), get('load_duration')
+        if generated and eval_ns:
+            ui.detail(f"Read {prompt or 0} new tokens, wrote {generated} tokens at "
+                      f"{generated / (eval_ns / 1e9):.1f} tokens/s"
+                      + (f"; model load {load_ns / 1e9:.1f}s" if load_ns and load_ns > 5e8 else ""))
+        try:
+            for m in self.client.ps().models:
+                if m.model == self.model and m.size:
+                    ui.detail(f"{m.size_vram / m.size:.0%} of the model on the GPU "
+                              f"({m.size / 1e9:.1f} GB with a {num_ctx}-token context)")
+        except Exception:
+            pass
 
     def interactive_chat(self, transcript_file):
         """
@@ -321,6 +344,9 @@ Please wait for the user's question about the video."""
             # Display model badge with running indicator
             print(f"Chat session started with [{ui.style(self.model, 'bold')}▲]. Type 'exit' to end the session.\n")
             print(f"Context: {num_ctx} tokens (transcript ~{transcript_tokens} tokens).")
+            ui.detail(f"Model maximum context: {max_context or 'unknown'} tokens; "
+                      f"thinking {'off' if can_think else 'not supported'}; "
+                      f"~{CHARS_PER_TOKEN} characters per token assumed")
             print("The AI has been provided with the video transcript. You can now ask questions about it.\n")
 
             # Start interactive chat loop

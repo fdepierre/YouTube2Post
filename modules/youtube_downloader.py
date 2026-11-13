@@ -320,5 +320,10 @@ class YouTubeDownloader:
             raise Exception('Failed to locate downloaded files')
 
         self.info = info
+        abr = info.get('abr') if ui.verbose else None
+        ui.detail(f"Audio format {info.get('format_id')}: {info.get('acodec')} "
+                  + (f"{abr:.0f} kbps " if abr else "") + f"in .{info.get('ext')}"
+                  + (f", language {info['language']}" if info.get('language') else ""))
+        ui.detail(f"Audio file: {audio_file}")
 
         return audio_file, json_file

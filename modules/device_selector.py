@@ -27,6 +27,11 @@ import platform
 import subprocess
 import sys
 
+try:
+    from . import ui
+except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
+    import ui
+
 # pip packages providing the CUDA libraries used by faster-whisper
 CUDA_LIBRARY_PACKAGES = ("nvidia-cublas-cu12", "nvidia-cudnn-cu12")
 
@@ -153,13 +158,14 @@ def select_device():
     Order: YT2POST_DEVICE override, then cached result, then a one-time GPU test.
     """
     forced = os.environ.get("YT2POST_DEVICE", "").strip().lower()
-    if forced == "cpu":
-        return CPU
-    if forced == "cuda":
-        return CUDA
+    if forced in ("cpu", "cuda"):
+        ui.detail(f"Device {forced} forced by YT2POST_DEVICE")
+        return CPU if forced == "cpu" else CUDA
 
     cache = _read_cache()
     if cache and all(cache.get(k) == v for k, v in _fingerprint().items()):
+        ui.detail(f"Device {cache.get('device')} from the GPU test saved in {CACHE_FILE} "
+                  "(delete it to test again)")
         return CUDA if cache.get("device") == "cuda" else CPU
 
     print("First run on this computer: testing whether the GPU can be used for transcription...")

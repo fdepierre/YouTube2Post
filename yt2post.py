@@ -78,6 +78,7 @@ def main():
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
+    ui.verbose = args.verbose
 
     if not (args.transcribe or args.chat or args.full):
         parser.print_help()

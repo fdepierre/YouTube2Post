@@ -148,7 +148,11 @@ macOS (`pbcopy`, `wl-copy`, `xclip` or `xsel`).
 - While a step runs, a spinning line shows its progress: size, speed and remaining time
   while downloading (network retries are shown in yellow), position and remaining time
   while transcribing.
-- `-v` / `--verbose` shows the detailed log instead (e.g. yt-dlp's), to investigate a problem.
+- `-v` / `--verbose` adds the technical details of each step, to understand or investigate:
+  where the CPU/GPU choice comes from, model files and precision; yt-dlp's full log, the
+  audio format and file; detected language and confidence, speech kept after silence
+  removal, speed relative to real time; in the chat, the context size and, after each
+  answer, the tokens read and written, the speed and the share of the model on the GPU.
 - Colours (step numbers, ✓, warnings in yellow, errors in red) and animations are used only
   in a terminal: redirected to a file, the output is plain text. Set the standard
   `NO_COLOR=1` environment variable to turn colours off.
