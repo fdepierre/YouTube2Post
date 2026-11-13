@@ -10,6 +10,7 @@ coloured --help.
 
 import os
 import sys
+import time
 
 _CODES = {
     'bold': '1', 'dim': '2', 'red': '31', 'green': '32', 'yellow': '33',
@@ -53,17 +54,37 @@ def error(text):
     print(style(text, 'bold', 'red'))
 
 
+def duration(seconds):
+    """Format seconds as '3s', '1:05' or '1:02:03'."""
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    h, rest = divmod(seconds, 3600)
+    m, s = divmod(rest, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 class Steps:
-    """Print the main steps of a run, numbered: '[2/4] Downloading the audio'."""
+    """
+    Print the main steps of a run, numbered ('[2/4] Downloading the audio'),
+    and their result once done ('  ✔ 7.1 MB downloaded (3s)').
+    """
 
     def __init__(self, names):
         self.names = list(names)
         self.current = 0
+        self.started = None
 
     def next(self, detail=''):
         """Print the next step, with an optional detail after its name."""
         self.current += 1
+        self.started = time.monotonic()
         name = self.names[self.current - 1]
         number = style(f"[{self.current}/{len(self.names)}]", 'bold', 'cyan')
         print(f"\n{number} {style(name, 'bold')}"
               + (f" {style(detail, 'dim')}" if detail else ""))
+
+    def done(self, result):
+        """Print the result of the current step with its duration."""
+        took = duration(time.monotonic() - self.started)
+        print(f"  {style('✔', 'bold', 'green')} {result} {style(f'({took})', 'dim')}")

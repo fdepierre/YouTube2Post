@@ -52,7 +52,7 @@ class Transcriber:
     GPU_MODEL = 'large-v3-turbo'
     CPU_MODEL = 'base'
 
-    def __init__(self, model_name=None, work_directory='.'):
+    def __init__(self, model_name=None, work_directory='.', announce=True):
         """
         Initialize the Transcriber with specified model and working directory.
 
@@ -60,9 +60,13 @@ class Transcriber:
             model_name (str, optional): Whisper model to use on every device.
                 If None, GPU_MODEL is used on GPU and CPU_MODEL on CPU.
             work_directory (str): Directory for storing output files
+            announce (bool): Print the device and model in use (the caller
+                may prefer to show them itself)
         """
         self.requested_model = model_name
         self.work_directory = work_directory
+        # Duration (s) and language of the last transcribed audio
+        self.audio_duration, self.language = 0, None
         # Use the GPU only if a one-time test proved it works; CPU otherwise
         device, compute_type = select_device()
         try:
@@ -74,7 +78,8 @@ class Transcriber:
             ui.warn(f"GPU initialisation failed ({e}); falling back to CPU.")
             save_result('cpu')
             self._load('cpu', 'int8')
-        print(f"Using device: {self.device} (model: {self.model_name})")
+        if announce:
+            print(f"Using device: {self.device} (model: {self.model_name})")
 
     def _load(self, device, compute_type):
         """Load the Whisper model suited to the device."""
@@ -90,11 +95,11 @@ class Transcriber:
     def _transcribe_text(self, audio_file):
         with Spinner("Preparing audio (decoding, speech and language detection)...") as spinner:
             segments, info = self.pipeline.transcribe(audio_file, batch_size=self.BATCH_SIZE)
-            spinner.stop(keep=f"Audio prepared in {_hms(time.monotonic() - spinner.start)}")
+            spinner.stop(keep=f"  Audio prepared in {_hms(time.monotonic() - spinner.start)}")
         duration = getattr(info, 'duration', 0) or 0
+        self.audio_duration, self.language = duration, getattr(info, 'language', None)
         if duration:
-            print(f"Transcribing {_hms(duration)} of audio "
-                  f"(language: {getattr(info, 'language', '?')}) with {self.model_name} on {self.device}...")
+            print(f"  Transcribing {_hms(duration)} of audio (language: {getattr(info, 'language', '?')})...")
 
         # Segments are generated lazily, batch by batch (errors also surface
         # here, not in transcribe()). The spinner redraws the progress line
@@ -121,7 +126,6 @@ class Transcriber:
                 done = min(segment.end / duration, 1.0) if duration else 0
                 if done > 0.02:
                     state['eta'], state['at'] = elapsed / done - elapsed, elapsed
-            spinner.stop(keep=f"  100%  done in {_hms(time.monotonic() - spinner.start)}")
         return " ".join(texts)
 
     def transcribe_audio(self, audio_file):

@@ -72,6 +72,7 @@ def main():
     parser.add_argument('-c', '--chat', help='Chat with AI based on the transcript.', action='store_true')
     parser.add_argument('-f', '--full', help='Download, transcribe, and chat with AI.', action='store_true')
     parser.add_argument('-m', '--model-select', help='Choose the Ollama model from the installed ones (default: the loaded model, or the only installed one)', action='store_true')
+    parser.add_argument('-v', '--verbose', help="Show the detailed log of each step (e.g. yt-dlp's)", action='store_true')
     parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing. '
                         'With -t or -f, if omitted, the YouTube URL is taken from the clipboard.', nargs='?')
 
@@ -89,10 +90,10 @@ def main():
     try:
         run(args)
     except KeyboardInterrupt:
-        ui.error("\nInterrupted.")
+        ui.error("\n✖ Interrupted.")
         sys.exit(1)
     except Exception as e:
-        ui.error(f"\nError: {e}")
+        ui.error(f"\n✖ Error: {e}")
         sys.exit(1)
 
 
@@ -143,20 +144,21 @@ def run(args):
 
     youtube_downloader = None
     if transcribe and not local_mp3:
-        youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir)
+        youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir, verbose=args.verbose)
 
     chat_manager = None
     if chat:
         # Chosen first, so the user can then leave during the long steps
         steps.next()
         model_name = OllamaManager().choose_model(ask=args.model_select)
-        print(f"Ollama model: {ui.style(model_name, 'bold')}")
+        steps.done(f"Ollama model: {ui.style(model_name, 'bold')}")
         chat_manager = OllamaManager(model=model_name)
 
     transcript_file = args.url_or_input
     if transcribe:
         steps.next()
-        transcriber = Transcriber(work_directory=work_dir)
+        transcriber = Transcriber(work_directory=work_dir, announce=False)
+        steps.done(f"{transcriber.model_name} on {transcriber.device.upper()}")
 
         source = args.url_or_input
         if local_mp3:
@@ -164,10 +166,14 @@ def run(args):
         else:
             steps.next(source)
             audio_file, json_file = youtube_downloader.download_audio(source)
+            title = (youtube_downloader.info or {}).get('title', os.path.basename(audio_file))
+            steps.done(f"{ui.style(title, 'bold')}, {youtube_downloader.downloaded_size(audio_file)}")
 
         steps.next()
         transcript_file = transcriber.create_transcript_content(audio_file, json_file, source)
-        ui.success(f"Transcript saved to: {os.path.abspath(transcript_file)}")
+        steps.done(f"{ui.duration(transcriber.audio_duration)} of audio transcribed"
+                   + (f" ({transcriber.language})" if transcriber.language else ""))
+        ui.success(f"\nTranscript saved to: {os.path.abspath(transcript_file)}")
         # Free the Whisper model's GPU memory for the Ollama model
         del transcriber
         gc.collect()

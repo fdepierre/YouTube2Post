@@ -32,6 +32,17 @@ class TestSteps(unittest.TestCase):
             steps.next('https://youtu.be/x')
         self.assertEqual(out.getvalue(), '\n[1/3] Load\n\n[2/3] Download https://youtu.be/x\n')
 
+    def test_done_shows_result_and_duration(self):
+        out = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True), patch.object(sys, 'stdout', out):
+            steps = ui.Steps(['Download'])
+            steps.next()
+            steps.done('7.1 MB')
+        self.assertTrue(out.getvalue().endswith('  ✔ 7.1 MB (0s)\n'))
+
+    def test_duration(self):
+        self.assertEqual([ui.duration(s) for s in (3.4, 65, 3723)], ['3s', '1:05', '1:02:03'])
+
 
 if __name__ == '__main__':
     unittest.main()
