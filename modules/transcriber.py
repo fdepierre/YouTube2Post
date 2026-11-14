@@ -73,6 +73,23 @@ def _hms(seconds):
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+# The remaining time is overestimated on purpose: better to finish early
+# than to show '0:00' while the work goes on.
+ETA_MARGIN = 1.25
+
+
+def remaining_estimate(elapsed, done, batch_time=0.0):
+    """
+    Estimate the seconds left when a `done` fraction took `elapsed` seconds:
+    the linear estimate with a margin, and at least the time of one more
+    batch while the work is not finished (progress comes batch by batch).
+    """
+    if done >= 1:
+        return 0.0
+    linear = elapsed / done - elapsed
+    return max(linear, batch_time) * ETA_MARGIN
+
+
 class Transcriber:
     """
     A class to handle audio transcription using Faster Whisper.
@@ -169,7 +186,8 @@ class Transcriber:
         # continuously from the position of the last segment received.
         # The remaining time is estimated when a batch arrives, then counts
         # down until the next one (instead of growing while waiting for it).
-        state = {'position': 0.0, 'eta': None, 'at': 0.0}
+        state = {'position': 0.0, 'eta': None, 'at': 0.0,
+                 'batch_at': None, 'last': 0.0, 'batch_time': 0.0}
 
         def progress(elapsed):
             if not duration:
@@ -177,7 +195,10 @@ class Transcriber:
             done = min(state['position'] / duration, 1.0)
             line = f"{done:4.0%}  {_hms(state['position'])} / {_hms(duration)}  elapsed {_hms(elapsed)}"
             if state['eta'] is not None:
-                line += f"  remaining ~{_hms(max(state['eta'] - (elapsed - state['at']), 0))}"
+                left = state['eta'] - (elapsed - state['at'])
+                # Longer than estimated (the GPU slows down as it heats up):
+                # no '~0:00' while the work goes on
+                line += f"  remaining ~{_hms(left)}" if left >= 1 else "  finishing..."
             return line
 
         texts = []
@@ -185,11 +206,18 @@ class Transcriber:
         with Spinner(progress) as spinner, LoadMonitor() as load:
             for segment in segments:
                 texts.append(segment.text)
-                elapsed = time.monotonic() - spinner.start
+                elapsed = time.monotonic() - started
+                # The segments of a batch arrive together: a gap starts a new batch
+                if state['batch_at'] is None or elapsed - state['last'] > 0.5:
+                    if state['batch_at'] is not None:
+                        state['batch_time'] = elapsed - state['batch_at']
+                    state['batch_at'] = elapsed
+                state['last'] = elapsed
                 state['position'] = segment.end
                 done = min(segment.end / duration, 1.0) if duration else 0
                 if done > 0.02:
-                    state['eta'], state['at'] = elapsed / done - elapsed, elapsed
+                    state['eta'] = remaining_estimate(elapsed, done, state['batch_time'])
+                    state['at'] = elapsed
         if ui.verbose:
             self._transcription_details(info, duration, len(texts), time.monotonic() - started)
             load.report()

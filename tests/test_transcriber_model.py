@@ -113,5 +113,18 @@ class TestModelDownload(unittest.TestCase):
         save.assert_not_called()  # the GPU works: not recorded as 'cpu'
 
 
+class TestRemainingEstimate(unittest.TestCase):
+    def test_longer_than_linear(self):
+        # half done in 60 s: linear says 60 s, the estimate leaves a margin
+        self.assertEqual(tr.remaining_estimate(60, 0.5), 60 * tr.ETA_MARGIN)
+
+    def test_at_least_one_batch_near_the_end(self):
+        # 94% done in 122 s: linear says ~8 s, but the last batch takes ~10 s
+        self.assertGreaterEqual(tr.remaining_estimate(122, 0.94, batch_time=10), 10)
+
+    def test_finished(self):
+        self.assertEqual(tr.remaining_estimate(100, 1.0, batch_time=10), 0)
+
+
 if __name__ == '__main__':
     unittest.main()
