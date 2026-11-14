@@ -294,6 +294,11 @@ next run tests the GPU again automatically.
 # skipped when it is not running)
 pytest
 
+# Only the end-to-end tests: yt2post.py run as a user does (-h, -t on an mp3 and on a
+# YouTube video, -v, the input prompt, -c and -f with answers typed to the chat), each on
+# a copy of the program in a temporary directory
+pytest tests/test_cli.py
+
 # Run tests with coverage report
 pytest --cov=modules tests/
 
