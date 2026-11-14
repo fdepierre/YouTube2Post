@@ -79,5 +79,31 @@ class TestDeviceSelector(unittest.TestCase):
         probe.assert_called_once()
 
 
+class TestLinuxCudaPreload(unittest.TestCase):
+    def test_dependencies_loaded_in_any_order(self):
+        with tempfile.TemporaryDirectory() as site:
+            lib = os.path.join(site, 'nvidia', 'cublas', 'lib')
+            os.makedirs(lib)
+            names = ['libcublas.so.12', 'libcublasLt.so.12', 'libnvblas.so.12']
+            for name in names:
+                open(os.path.join(lib, name), 'w').close()
+            loaded = []
+
+            def cdll(path, mode=0):
+                name = os.path.basename(path)
+                # libcublas needs libcublasLt, sorted after it
+                if name == 'libcublas.so.12' and 'libcublasLt.so.12' not in loaded:
+                    raise OSError('libcublasLt.so.12: cannot open shared object file')
+                loaded.append(name)
+
+            with patch.object(ds.sys, 'path', [site]), patch('ctypes.CDLL', side_effect=cdll):
+                self.assertEqual(ds._preload_linux_cuda_libraries(), 2)
+            self.assertEqual(loaded, ['libcublasLt.so.12', 'libcublas.so.12'])  # not libnvblas
+
+    def test_nothing_installed(self):
+        with tempfile.TemporaryDirectory() as site, patch.object(ds.sys, 'path', [site]):
+            self.assertEqual(ds._preload_linux_cuda_libraries(), 0)
+
+
 if __name__ == '__main__':
     unittest.main()

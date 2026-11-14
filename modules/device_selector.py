@@ -16,8 +16,9 @@ automatically if either changes. Delete the cache file to force a new test.
 Set the environment variable YT2POST_DEVICE=cpu (or cuda) to skip detection.
 
 The CUDA libraries faster-whisper needs (cuBLAS, cuDNN) can be installed with
-pip (nvidia-cublas-cu12, nvidia-cudnn-cu12). On Windows they are not found by
-default: add_cuda_library_dirs() makes them findable.
+pip (nvidia-cublas-cu12, nvidia-cudnn-cu12). They are not found by default
+(Windows: not on PATH; Linux: not on LD_LIBRARY_PATH): add_cuda_library_dirs()
+makes them findable.
 """
 
 import glob
@@ -36,12 +37,51 @@ except ImportError:  # imported as a top-level module (tests add modules/ to sys
 CUDA_LIBRARY_PACKAGES = ("nvidia-cublas-cu12", "nvidia-cudnn-cu12")
 
 
+# Linux directories of the pip packages above, under site-packages
+_LINUX_CUDA_LIBRARY_DIRS = (("nvidia", "cublas", "lib"), ("nvidia", "cudnn", "lib"))
+
+
+def _preload_linux_cuda_libraries():
+    """
+    Load the cuBLAS and cuDNN libraries installed by pip, so that CTranslate2
+    finds them without LD_LIBRARY_PATH (it opens them by name, and a library
+    already loaded is reused). Without this, the GPU fails only when the
+    transcription starts, with "libcublas.so.12 is not found".
+    Returns the number of libraries loaded.
+    """
+    import ctypes
+
+    paths = []
+    for site_dir in sys.path:
+        for parts in _LINUX_CUDA_LIBRARY_DIRS:
+            paths += sorted(glob.glob(os.path.join(site_dir, *parts, "lib*.so.*")))
+    # libnvblas is not used, and replaces BLAS functions if loaded globally
+    pending = [p for p in paths if "libnvblas" not in os.path.basename(p)]
+    loaded = 0
+    # The libraries depend on each other: retry until nothing more loads
+    while pending:
+        failed = []
+        for path in pending:
+            try:
+                ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+                loaded += 1
+            except OSError:
+                failed.append(path)
+        if len(failed) == len(pending):
+            break
+        pending = failed
+    return loaded
+
+
 def add_cuda_library_dirs():
     """
-    On Windows, make the CUDA DLLs installed by pip (site-packages/nvidia/*/bin)
-    findable by CTranslate2. Call before loading a model on the GPU. No effect
-    elsewhere: on Linux the libraries are found through LD_LIBRARY_PATH.
+    Make the CUDA libraries installed by pip findable by CTranslate2: on
+    Windows, the DLL directories (site-packages/nvidia/*/bin); on Linux and
+    WSL, the libraries are loaded. Call before loading a model on the GPU.
     """
+    if sys.platform.startswith("linux"):
+        _preload_linux_cuda_libraries()
+        return
     if sys.platform != "win32":
         return
     for site_dir in sys.path:
@@ -60,13 +100,11 @@ CPU = ("cpu", "int8")
 CUDA = ("cuda", "float16")
 
 # Runs in a child process: exit code 0 means faster-whisper works on the GPU.
-_PROBE_CODE = """
-import glob, os, sys
-if sys.platform == "win32":  # same as add_cuda_library_dirs()
-    for site_dir in sys.path:
-        for dll_dir in glob.glob(os.path.join(site_dir, "nvidia", "*", "bin")):
-            os.add_dll_directory(dll_dir)
-            os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
+_PROBE_CODE = f"""
+import sys
+sys.path.insert(0, {os.path.dirname(os.path.abspath(__file__))!r})
+from device_selector import add_cuda_library_dirs
+add_cuda_library_dirs()  # as the main program does
 import numpy as np
 from faster_whisper import WhisperModel
 model = WhisperModel("tiny", device="cuda", compute_type="float16")

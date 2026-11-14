@@ -246,19 +246,14 @@ it is retried on the CPU with `base`.
 
 To use an NVIDIA GPU, install the CUDA 12 libraries used by faster-whisper (~1 GB):
 
-- **Windows** (PowerShell): nothing else to set up, the program finds them by itself:
+In PowerShell on Windows, or in a shell on Linux / WSL (the same `python` that runs yt2post):
 
-  ```powershell
-  python -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
-  ```
+```bash
+python -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
+```
 
-- **Linux / WSL**: also make them findable (put the `export` line in `~/.bashrc`, or for a
-  conda environment use `conda env config vars set LD_LIBRARY_PATH=...`):
-
-  ```bash
-  pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
-  export LD_LIBRARY_PATH=$(python -c 'import nvidia.cublas.lib as b, nvidia.cudnn.lib as d; print(b.__path__[0] + ":" + d.__path__[0])')
-  ```
+Nothing else to set up (no PATH or `LD_LIBRARY_PATH`): the program loads them from where pip
+installed them.
 
 The next run tests the GPU again automatically.
 
