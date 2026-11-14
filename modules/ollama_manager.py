@@ -13,17 +13,20 @@ robust for programmatic integration.
 """
 
 import time
+from urllib.parse import urlparse
 
 from ollama import Client
 
 try:
     from .progress import Spinner
     from . import ui
-    from .sysinfo import LoadMonitor
+    from .clipboard import environment
+    from .sysinfo import LoadMonitor, gpu_status, process_running
 except ImportError:  # imported as a top-level module
     from progress import Spinner
     import ui
-    from sysinfo import LoadMonitor
+    from clipboard import environment
+    from sysinfo import LoadMonitor, gpu_status, process_running
 
 # Ollama only reads the first few thousand tokens of a prompt by default
 # (num_ctx), so a long transcript would be cut off. The context is sized from
@@ -43,6 +46,18 @@ def context_size(messages, max_context=None):
     if max_context:
         size = min(size, max_context)
     return size
+
+
+def server_location(url):
+    """Describe where the Ollama server at this URL runs."""
+    host = (urlparse(url).hostname or '').lower()
+    if host not in ('localhost', '127.0.0.1', '::1', '0.0.0.0'):
+        return f"on another computer ({host})"
+    if environment() == 'wsl':
+        if process_running('ollama') is False:  # WSL cannot see Windows processes
+            return "on the Windows host (reached from WSL through localhost)"
+        return "inside WSL"
+    return "on this computer"
 
 
 class OllamaManager:
@@ -74,7 +89,55 @@ class OllamaManager:
             host (str): Ollama API host URL (default: 'http://localhost:11434').
         """
         self.model = model
+        self.host = host
         self.client = Client(host=host)
+
+    def server_url(self):
+        """The URL the client really uses (the OLLAMA_HOST variable can change it)."""
+        try:
+            return str(self.client._client.base_url).rstrip('/')
+        except AttributeError:
+            return self.host
+
+    def server_version(self):
+        """Return the Ollama server version (GET /api/version), or None."""
+        try:
+            return self.client._client.get('/api/version', timeout=3).json().get('version')
+        except Exception:
+            return None
+
+    def server_details(self, num_ctx, max_context, think_off):
+        """In verbose mode, describe the Ollama server, the API request and its hardware."""
+        if not ui.verbose:
+            return
+        url = self.server_url()
+        location = server_location(url)
+        ui.detail(f"Ollama server {self.server_version() or '(version unknown)'} at {url}, "
+                  f"running {location}")
+        ui.detail("API request: POST /api/chat, stream=true, "
+                  + ("think=false (thinking off: the model answers without reasoning first)"
+                     if think_off else "no think parameter (this model does not think)")
+                  + f", num_ctx={num_ctx} (model maximum {max_context or 'unknown'}), "
+                  f"~{CHARS_PER_TOKEN} characters per token assumed")
+        if location.startswith('on another computer'):
+            ui.detail("Hardware used by Ollama: unknown, the server is on another computer")
+        else:
+            gpu = gpu_status()
+            if gpu and gpu['memory.total'] and gpu['memory.used'] is not None:
+                free = (gpu['memory.total'] - gpu['memory.used']) / 1024
+                ui.detail(f"Hardware used by Ollama: {gpu['name']}, {free:.1f} of "
+                          f"{gpu['memory.total'] / 1024:.1f} GB GPU memory free now; Ollama puts "
+                          "as much of the model as fits on the GPU, the rest runs on the CPU")
+            else:
+                ui.detail("Hardware used by Ollama: no NVIDIA GPU found, the model runs on the CPU")
+        try:
+            loaded = [f"{m.model} ({m.size / 1e9:.1f} GB, {m.size_vram / m.size:.0%} on the GPU)"
+                      for m in self.client.ps().models if m.size]
+        except Exception:
+            loaded = None
+        if loaded is not None:
+            ui.detail("Models already in Ollama memory: " + ", ".join(loaded) if loaded
+                      else "No model in Ollama memory yet: the first answer loads it")
 
     def list_available_models(self):
         """
@@ -242,6 +305,7 @@ class OllamaManager:
         label = ("Reading the transcript and preparing the answer..." if first
                  else "Preparing the answer...")
         parts = []
+        thinking = 0  # characters of reasoning received (none expected with think=false)
         last = None
         start = time.monotonic()
         indicator = Spinner(label)
@@ -258,7 +322,9 @@ class OllamaManager:
                 )
                 for chunk in stream:
                     last = chunk
-                    text = chunk['message']['content']
+                    message = chunk['message']
+                    thinking += len((message.get('thinking') if hasattr(message, 'get') else None) or '')
+                    text = message['content']
                     if not text:
                         continue
                     if not parts:
@@ -270,15 +336,19 @@ class OllamaManager:
             ui.warn("\n[Answer interrupted]\n")
             return None
         print("\n" + ui.style(f"({time.monotonic() - start:.0f}s)", 'dim'))
-        self._answer_details(last, num_ctx)
+        self._answer_details(last, num_ctx, thinking, 'think' in chat_options)
         load.report()
         print()
         return ''.join(parts)
 
-    def _answer_details(self, last, num_ctx):
+    def _answer_details(self, last, num_ctx, thinking=0, think_off=False):
         """In verbose mode, show the token counts and speed of an answer."""
         if not ui.verbose or not last:
             return
+        if thinking:
+            ui.detail(f"Thinking: {thinking} characters of reasoning received before the answer")
+        elif think_off:
+            ui.detail("Thinking: off, no reasoning received (think=false respected)")
         get = lambda key: last.get(key) if isinstance(last, dict) else getattr(last, key, None)
         prompt, generated = get('prompt_eval_count'), get('eval_count')
         eval_ns, load_ns = get('eval_duration'), get('load_duration')
@@ -292,9 +362,18 @@ class OllamaManager:
                     in_ram = m.size - m.size_vram
                     ui.detail(f"Model loaded: {m.size / 1e9:.1f} GB with a {num_ctx}-token context, "
                               f"{m.size_vram / 1e9:.1f} GB on the GPU ({m.size_vram / m.size:.0%})"
-                              + (f", {in_ram / 1e9:.1f} GB in RAM, run by the CPU" if in_ram > 0 else ""))
+                              + (f", {in_ram / 1e9:.1f} GB in RAM, run by the CPU" if in_ram > 0 else "")
+                              + self._expiry(m))
         except Exception:
             pass
+
+    @staticmethod
+    def _expiry(model):
+        """'; kept in memory until 14:32' from the ps() expiry time, or ''."""
+        try:
+            return f"; kept in memory until {model.expires_at.astimezone().strftime('%H:%M')}"
+        except (AttributeError, ValueError, OSError):
+            return ""
 
     def interactive_chat(self, transcript_file):
         """
@@ -356,9 +435,7 @@ Please wait for the user's question about the video."""
             # Display model badge with running indicator
             print(f"Chat session started with [{ui.style(self.model, 'bold')}▲]. Type 'exit' to end the session.\n")
             print(f"Context: {num_ctx} tokens (transcript ~{transcript_tokens} tokens).")
-            ui.detail(f"Model maximum context: {max_context or 'unknown'} tokens; "
-                      f"thinking {'off' if can_think else 'not supported'}; "
-                      f"~{CHARS_PER_TOKEN} characters per token assumed")
+            self.server_details(num_ctx, max_context, can_think)
             print("The AI has been provided with the video transcript. You can now ask questions about it.\n")
 
             # Start interactive chat loop

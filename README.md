@@ -156,8 +156,13 @@ macOS (`pbcopy`, `wl-copy`, `xclip` or `xsel`).
   - transcription: where the CPU/GPU choice comes from, model size, files and precision,
     detected language and confidence, speech kept after silence removal, speed;
   - download: yt-dlp's full log and the audio format;
-  - chat: the Ollama model (parameters, quantization), context size and, after each answer,
-    the tokens read and written, the speed, and how much of the model is on the GPU or in RAM.
+  - chat: the Ollama server (version, address, where it runs: this computer, inside WSL or
+    the Windows host), the API request sent (`think=false`, `num_ctx`), the GPU memory free
+    for Ollama and the models already loaded, the model (parameters, quantization) and, after
+    each answer, whether any reasoning was received, the tokens read and written, the speed,
+    how much of the model is on the GPU or in RAM and until when Ollama keeps it loaded.
+- Without `-v`, none of these measurements runs (no `nvidia-smi`, no extra Ollama request):
+  the normal mode is not slowed down.
 - Colours (step numbers, ✓, warnings in yellow, errors in red) and animations are used only
   in a terminal: redirected to a file, the output is plain text. Set the standard
   `NO_COLOR=1` environment variable to turn colours off.

@@ -115,6 +115,30 @@ def windows_host_ram():
     return int(text) if text.isdigit() else None
 
 
+def process_running(name):
+    """
+    True if a process with this name runs here, False if not, None if unknown.
+    On Linux/WSL the /proc names are read; WSL does not see Windows processes.
+    """
+    if sys.platform.startswith('linux'):
+        try:
+            entries = [e for e in os.listdir('/proc') if e.isdigit()]
+        except OSError:
+            return None
+        for entry in entries:
+            try:
+                with open(f'/proc/{entry}/comm', encoding='utf-8') as f:
+                    if f.read().strip() == name:
+                        return True
+            except OSError:
+                continue
+        return False
+    if sys.platform == 'win32':
+        text = _run(['tasklist', '/FO', 'CSV', '/NH', '/FI', f'IMAGENAME eq {name}.exe'])
+        return f'"{name}.exe"'.lower() in text.lower() if text else None
+    return None
+
+
 # --- GPU -------------------------------------------------------------------------
 
 _GPU_FIELDS = ('name', 'memory.total', 'memory.used', 'driver_version',

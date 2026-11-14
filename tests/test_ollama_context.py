@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 import unittest
@@ -90,7 +91,9 @@ class TestAnswerDetails(unittest.TestCase):
     def test_verbose_shows_tokens_speed_and_gpu_share(self):
         with patch.object(om, 'Client') as client_cls:
             client = client_cls.return_value
-            client.ps.return_value = MagicMock(models=[MagicMock(model='qwen3.5:4b', size=3.6e9, size_vram=3.6e9)])
+            expiry = datetime.datetime(2026, 11, 14, 14, 32).astimezone()
+            client.ps.return_value = MagicMock(models=[MagicMock(model='qwen3.5:4b', size=3.6e9, size_vram=3.6e9,
+                                                                     expires_at=expiry)])
             manager = om.OllamaManager(model='qwen3.5:4b')
             last = {'message': {'content': ''}, 'done': True, 'prompt_eval_count': 10435,
                     'eval_count': 400, 'eval_duration': 8e9, 'load_duration': 1e8}
@@ -99,7 +102,8 @@ class TestAnswerDetails(unittest.TestCase):
                 manager._answer_details(last, 16384)
         lines = [c.args[0] for c in printed.call_args_list]
         self.assertEqual(lines, ['    · Read 10435 new tokens, wrote 400 tokens at 50.0 tokens/s',
-                                 '    · Model loaded: 3.6 GB with a 16384-token context, 3.6 GB on the GPU (100%)'])
+                                 '    · Model loaded: 3.6 GB with a 16384-token context, 3.6 GB on the GPU (100%); '
+                                 'kept in memory until 14:32'])
 
 
 if __name__ == '__main__':
