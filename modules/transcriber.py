@@ -90,6 +90,19 @@ def remaining_estimate(elapsed, done, batch_time=0.0):
     return max(linear, batch_time) * ETA_MARGIN
 
 
+
+def next_countdown(shown, estimate):
+    """
+    The remaining time to show when a new estimate arrives while `shown` is
+    displayed: the countdown never goes back up (it shows 'finishing...' if
+    it reaches 0 first), unless the work clearly slowed down.
+    """
+    shown = max(shown, 0)
+    if estimate > shown * 1.5 + 10:
+        return estimate
+    return min(estimate, shown)
+
+
 class Transcriber:
     """
     A class to handle audio transcription using Faster Whisper.
@@ -184,14 +197,27 @@ class Transcriber:
         # Segments are generated lazily, batch by batch (errors also surface
         # here, not in transcribe()). The spinner redraws the progress line
         # continuously from the position of the last segment received.
-        # The remaining time is estimated when a batch arrives, then counts
-        # down until the next one (instead of growing while waiting for it).
-        state = {'position': 0.0, 'eta': None, 'at': 0.0,
+        # The remaining time is estimated once a whole batch has arrived (its
+        # segments come one by one within a few milliseconds), then counts
+        # down until the next one.
+        state = {'position': 0.0, 'eta': None, 'at': 0.0, 'pending': None,
                  'batch_at': None, 'last': 0.0, 'batch_time': 0.0}
+
+        def update_estimate(elapsed):
+            pending = state['pending']
+            if pending is None or elapsed - state['last'] < 0.15:
+                return  # no new batch, or its segments are still arriving
+            state['pending'] = None
+            at, done, batch_time = pending
+            estimate = remaining_estimate(at, done, batch_time)
+            if state['eta'] is not None:
+                estimate = next_countdown(state['eta'] - (at - state['at']), estimate)
+            state['eta'], state['at'] = estimate, at
 
         def progress(elapsed):
             if not duration:
                 return f"elapsed {_hms(elapsed)}"
+            update_estimate(elapsed)
             done = min(state['position'] / duration, 1.0)
             line = f"{done:4.0%}  {_hms(state['position'])} / {_hms(duration)}  elapsed {_hms(elapsed)}"
             if state['eta'] is not None:
@@ -216,8 +242,7 @@ class Transcriber:
                 state['position'] = segment.end
                 done = min(segment.end / duration, 1.0) if duration else 0
                 if done > 0.02:
-                    state['eta'] = remaining_estimate(elapsed, done, state['batch_time'])
-                    state['at'] = elapsed
+                    state['pending'] = (elapsed, done, state['batch_time'])
         if ui.verbose:
             self._transcription_details(info, duration, len(texts), time.monotonic() - started)
             load.report()

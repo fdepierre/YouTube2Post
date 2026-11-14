@@ -122,6 +122,15 @@ class TestRemainingEstimate(unittest.TestCase):
         # 94% done in 122 s: linear says ~8 s, but the last batch takes ~10 s
         self.assertGreaterEqual(tr.remaining_estimate(122, 0.94, batch_time=10), 10)
 
+    def test_countdown_does_not_go_back_up(self):
+        # the 26:44 video: ~0:04 shown when the last batch arrived with ~0:10
+        self.assertEqual(tr.next_countdown(4, 10), 4)
+        self.assertEqual(tr.next_countdown(-2, 10), 0)  # stays on 'finishing...'
+        self.assertEqual(tr.next_countdown(15, 12.9), 12.9)
+
+    def test_countdown_goes_up_on_a_big_slowdown(self):
+        self.assertEqual(tr.next_countdown(20, 60), 60)
+
     def test_finished(self):
         self.assertEqual(tr.remaining_estimate(100, 1.0, batch_time=10), 0)
 
