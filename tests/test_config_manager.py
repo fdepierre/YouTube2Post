@@ -12,7 +12,6 @@ import os
 import unittest
 from modules.config_manager import ConfigManager, ConfigError
 import json
-import os
 
 class TestConfigManager(unittest.TestCase):
     """

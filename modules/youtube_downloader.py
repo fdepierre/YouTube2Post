@@ -17,7 +17,7 @@ try:
 except ImportError:
     raise ImportError(
         'yt-dlp is not installed. Please install it using: pip install -U "yt-dlp[default]"'
-    )
+    ) from None
 
 # yt-dlp 2025.11.12+ requires an external JS runtime for YouTube.
 _MIN_YTDLP_VERSION = (2025, 11, 12)
@@ -281,7 +281,7 @@ class YouTubeDownloader:
                         error_text = _short_error(e)
                         if _is_video_error(error_text):
                             raise Exception(f'Error downloading the video: {error_text}. '
-                                            'Please check if the URL is valid.')
+                                            'Please check if the URL is valid.') from e
                         errors.append(error_text)
                         retry = attempt + 1 < tries and _is_forbidden(error_text)
                         say(ui.style(f"Download failed with the {client} YouTube client "
@@ -291,7 +291,7 @@ class YouTubeDownloader:
                         if not retry:
                             break
                     except Exception as e:
-                        raise Exception(f'Unexpected error while downloading: {str(e)}')
+                        raise Exception(f'Unexpected error while downloading: {e}') from e
                 if info is not None:
                     break
 

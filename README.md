@@ -308,6 +308,20 @@ pytest --cov=modules --cov-report=html tests/
 
 View the coverage report at `htmlcov/index.html`
 
+### Security Checks
+
+With `pip install pip-audit bandit ruff` and [gitleaks](https://github.com/gitleaks/gitleaks/releases):
+
+```bash
+pip-audit -r requirements.txt                              # known vulnerabilities in the dependencies
+bandit -r yt2post.py modules                               # risky code patterns
+ruff check --isolated --select F,E9,B yt2post.py modules tests   # errors and likely bugs
+gitleaks git .                                             # secrets in the git history
+```
+
+bandit's remaining notes (B404, B603) are about `subprocess`: every command is run with a
+fixed argument list and no shell.
+
 ### Project Structure
 
 ```

@@ -52,7 +52,7 @@ class ConfigManager:
             with open(self.config_file_path, 'r', encoding='utf-8') as config_file:
                 config = json.load(config_file)
         except FileNotFoundError:
-            raise ConfigError(f"Config file '{self.config_file_path}' not found.")
+            raise ConfigError(f"Config file '{self.config_file_path}' not found.") from None
         
         if parameter not in config:
             raise ConfigError(f"Parameter '{parameter}' not found in configuration.")

@@ -32,8 +32,24 @@ def use_color(stream=None):
     return hasattr(stream, 'isatty') and stream.isatty()
 
 
-if sys.platform == 'win32':  # turn on ANSI escape codes in the Windows console
-    os.system('')
+def _enable_windows_ansi():
+    """
+    Turn on ANSI escape codes (colours, cursor) in the Windows console, through
+    the console API rather than the usual os.system('') trick, which starts
+    a shell (cmd.exe) for nothing.
+    """
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    enable_virtual_terminal_processing = 0x0004
+    for std_handle in (-11, -12):  # stdout, stderr
+        handle = kernel32.GetStdHandle(std_handle)
+        mode = ctypes.c_ulong()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):  # a console, not a file
+            kernel32.SetConsoleMode(handle, mode.value | enable_virtual_terminal_processing)
+
+
+if sys.platform == 'win32':
+    _enable_windows_ansi()
 
 
 def style(text, *styles):

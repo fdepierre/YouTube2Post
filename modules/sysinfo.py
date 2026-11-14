@@ -152,7 +152,7 @@ def gpu_status():
     values = [v.strip() for v in text.splitlines()[0].split(',')]
     if len(values) != len(_GPU_FIELDS):
         return None
-    status = dict(zip(_GPU_FIELDS, values))
+    status = dict(zip(_GPU_FIELDS, values, strict=True))
     for key in ('memory.total', 'memory.used', 'temperature.gpu', 'utilization.gpu'):
         try:
             status[key] = float(status[key])

@@ -45,7 +45,9 @@ def context_size(messages, max_context=None):
 def server_location(url):
     """Describe where the Ollama server at this URL runs."""
     host = (urlparse(url).hostname or '').lower()
-    if host not in ('localhost', '127.0.0.1', '::1', '0.0.0.0'):
+    # Addresses of this computer ('0.0.0.0' when OLLAMA_HOST is copied from the
+    # server's listen setting): only compared, nothing listens here
+    if host not in ('localhost', '127.0.0.1', '::1', '0.0.0.0'):  # nosec B104
         return f"on another computer ({host})"
     if environment() == 'wsl':
         if process_running('ollama') is False:  # WSL cannot see Windows processes
@@ -156,7 +158,7 @@ class OllamaManager:
                 return [model.model for model in result.models]
             return []
         except Exception as e:
-            raise Exception(f'Failed to list models: {str(e)}')
+            raise Exception(f'Failed to list models: {e}') from e
     
     def list_running_models(self):
         """
@@ -180,7 +182,7 @@ class OllamaManager:
                 return [model.model for model in result.models]
             return []
         except Exception as e:
-            raise Exception(f'Failed to list running models: {str(e)}')
+            raise Exception(f'Failed to list running models: {e}') from e
             
     def choose_model(self, ask=False):
         """
@@ -219,7 +221,7 @@ class OllamaManager:
                 choice = input(f"Model number [Enter = {default}]: ").strip()
             except (EOFError, KeyboardInterrupt):
                 print()
-                raise Exception("No model selected")
+                raise Exception("No model selected") from None
             if not choice:
                 return default
             if choice.isdigit() and 1 <= int(choice) <= len(installed):
@@ -268,7 +270,7 @@ class OllamaManager:
             message = str(e).lower()
             if "not found" in message or "no such model" in message:
                 raise Exception(f"Model {self.model} is not available. "
-                                "Check the installed models with 'ollama list'.")
+                                "Check the installed models with 'ollama list'.") from e
             return False
 
     def _stream_answer(self, chat_history, max_context, chat_options, first):
@@ -344,7 +346,7 @@ class OllamaManager:
                               f"{m.size_vram / 1e9:.1f} GB on the GPU ({m.size_vram / m.size:.0%})"
                               + (f", {in_ram / 1e9:.1f} GB in RAM, run by the CPU" if in_ram > 0 else "")
                               + self._expiry(m))
-        except Exception:
+        except Exception:  # nosec B110: optional details, never worth stopping the chat
             pass
 
     @staticmethod
@@ -459,4 +461,4 @@ Please wait for the user's question about the video."""
                     ui.error(f"\nError during chat: {str(e)}")
                     print("Please try again or type 'exit' to end the session.")
         except Exception as e:
-            raise Exception(f'Failed to start chat session: {str(e)}')
+            raise Exception(f'Failed to start chat session: {e}') from e
