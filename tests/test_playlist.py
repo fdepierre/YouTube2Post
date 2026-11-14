@@ -1,4 +1,6 @@
+import glob
 import io
+import json
 import os
 import sys
 import tempfile
@@ -16,7 +18,7 @@ PLAYLIST = 'https://www.youtube.com/playlist?list=PLEnK6o7pdzkdtZJ1FmPqXO6VRu-09
 
 
 def _playlist(n=3):
-    return {'title': 'Préhistoire', 'uploader': "Musée de l'Homme", 'url': PLAYLIST,
+    return {'title': 'Préhistoire', 'uploader': "Musée de l'Homme", 'url': PLAYLIST, 'id': 'PLtest',
             'entries': [{'title': f'Video {i}', 'url': f'https://youtu.be/v{i}', 'duration': 60}
                         for i in range(1, n + 1)]}
 
@@ -88,6 +90,9 @@ class TestTranscribePlaylist(unittest.TestCase):
     def tearDown(self):
         self.dir.cleanup()
 
+    def _transcripts(self):
+        return sorted(f for f in os.listdir(self.work) if f.endswith('.txt'))
+
     def _run(self, mode, fail=(), chat=False):
         downloader = MagicMock()
         audio = {}
@@ -98,12 +103,15 @@ class TestTranscribePlaylist(unittest.TestCase):
             path = os.path.join(self.tmp, url[-2:] + '.webm')
             open(path, 'w').close()
             audio[url] = path
-            downloader.info = {'title': 'Real ' + url[-2:]}
+            downloader.info = {'id': 'vid' + url[-2:], 'title': 'Real ' + url[-2:],
+                               'channel': "Musée de l'Homme", 'upload_date': '20240502'}
             return path, path + '.json'
 
         downloader.download_audio.side_effect = download
         downloader.downloaded_size.return_value = '1.0 MB'
-        transcriber = MagicMock(audio_duration=60, language='fr')
+        transcriber = MagicMock(audio_duration=60, language='fr', language_given=True,
+                                model_name='base', device='cpu', compute_type='int8',
+                                BATCH_SIZE=16, segments=[(0.0, 4.2, ' Bonjour à tous.')])
         transcriber.transcript.side_effect = lambda a, j, url: (f'Title {url[-2:]}', f'Text of {url[-2:]}')
         steps = ui.Steps(['Loading'] + [f'Video {i}' for i in range(1, 4)])
         steps.next()
@@ -117,15 +125,22 @@ class TestTranscribePlaylist(unittest.TestCase):
     def test_one_file_per_video_numbered(self):
         result, out = self._run('separate')
         self.assertIsNone(result)
-        self.assertEqual(sorted(os.listdir(self.work)),
+        self.assertEqual(self._transcripts(),
                          ['1_Title_v1_transcript.txt', '2_Title_v2_transcript.txt', '3_Title_v3_transcript.txt'])
         self.assertIn('Transcripts saved to:', out)
         self.assertIn('Directory path copied', out)
         self.assertIn('Real v2', out)  # the video's own title after its download
+        # One timestamped source per video, with its place in the playlist
+        sources = sorted(glob.glob(os.path.join(self.work, 'sources', 'youtube', '*', '*.json')))
+        self.assertEqual(len(sources), 3)
+        with open(sources[1], encoding='utf-8') as f:
+            source = json.load(f)
+        self.assertEqual(source['source_id'], 'youtube:vidv2')
+        self.assertEqual(source['playlists'], [{'id': 'PLtest', 'title': 'Préhistoire', 'position': 2}])
 
     def test_one_file_with_everything(self):
         result, out = self._run('combined')
-        self.assertEqual(os.listdir(self.work), [os.path.basename(result)])
+        self.assertEqual(self._transcripts(), [os.path.basename(result)])
         with open(result, encoding='utf-8') as f:
             text = f.read()
         self.assertIn('the 3 videos of the YouTube playlist "Préhistoire"', text)
@@ -135,11 +150,11 @@ class TestTranscribePlaylist(unittest.TestCase):
     def test_chat_with_separate_files_reads_a_combined_copy(self):
         result, _ = self._run('separate', chat=True)
         self.assertEqual(os.path.dirname(result), self.tmp)
-        self.assertEqual(len(os.listdir(self.work)), 3)
+        self.assertEqual(len(self._transcripts()), 3)
 
     def test_failed_video_is_skipped(self):
         _, out = self._run('separate', fail={'https://youtu.be/v2'})
-        self.assertEqual(len(os.listdir(self.work)), 2)
+        self.assertEqual(len(self._transcripts()), 2)
         self.assertIn('Skipped: Video unavailable', out)
         self.assertIn('1 of 3 videos could not be transcribed', out)
 

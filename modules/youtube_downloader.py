@@ -263,7 +263,7 @@ class YouTubeDownloader:
                     'duration': e.get('duration')}
                    for e in (info.get('entries') or []) if e]
         return {'title': info.get('title') or 'playlist', 'uploader': info.get('uploader'),
-                'url': playlist_url, 'entries': entries}
+                'id': playlist_id(url), 'url': playlist_url, 'entries': entries}
 
     def downloaded_size(self, audio_file):
         """Return a short summary of a downloaded file: '7.1 MB'."""

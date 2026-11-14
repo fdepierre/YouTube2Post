@@ -8,6 +8,7 @@ need the network (YouTube) or Ollama are skipped when it is not available.
 """
 
 import glob
+import json
 import os
 import shutil
 import subprocess
@@ -67,6 +68,13 @@ class CliTestCase(unittest.TestCase):
     def transcripts(self):
         return glob.glob(os.path.join(self.work, '*_transcript.txt'))
 
+    def source_file(self, kind):
+        """The one timestamped JSON source written in work/sources/<kind>/."""
+        paths = glob.glob(os.path.join(self.work, 'sources', kind, '*', '*.json'))
+        self.assertEqual(len(paths), 1, paths)
+        with open(paths[0], encoding='utf-8') as f:
+            return json.load(f)
+
     def assert_transcript(self, output):
         """One transcript in work/, with the expected words and its path printed."""
         files = self.transcripts()
@@ -114,6 +122,9 @@ class TestTranscribeLocalMp3(CliTestCase):
         path = self.assert_transcript(out)
         with open(path, encoding='utf-8') as f:
             self.assertIn(TEST_MP3, f.read())  # the source, in the header
+        source = self.source_file('files')
+        self.assertEqual(source['source_type'], 'audio_file')
+        self.assertIn('weed', ' '.join(s['text'] for s in source['segments']).lower())
 
     def test_verbose_with_file_argument(self):
         code, out = self.run_cli('-v', '-t', TEST_MP3)
@@ -156,6 +167,12 @@ class TestTranscribeYouTube(CliTestCase):
         self.assertEqual(len(files), 1, out)  # the video only, not the playlist
         with open(files[0], encoding='utf-8') as f:
             self.assertIn('Néandertal', f.read())
+        source = self.source_file('youtube')
+        self.assertEqual(source['source_id'], 'youtube:JfoqQJbz8VA')
+        self.assertEqual(source['language'], 'fr')
+        starts = [s['start'] for s in source['segments']]
+        self.assertEqual(starts, sorted(starts))
+        self.assertGreater(source['segments'][-1]['end'], 120)  # a 2:23 video
 
     def test_unavailable_video(self):
         code, out = self.run_cli('-t', 'https://www.youtube.com/watch?v=xxxxxxxxxxx')

@@ -135,12 +135,17 @@ Each run shows its main steps numbered, then the result of each one:
   ✓ 18:17 of audio transcribed (fr) (26s)
 
 Transcript saved to:
-  Dir:  /path/to/YouTube2Post/work/
-  File: Video_title_transcript.txt
-  ✓ Full path copied to the clipboard
+  Dir:        /path/to/YouTube2Post/work/
+  Text:       Video_title_transcript.txt
+  With times: sources/youtube/Video_title_<video_id>/2026-11-14_large-v3-turbo_b7e557.json
+  ✓ Text file path copied to the clipboard
 ```
 
-The full path of the transcript is copied to the clipboard, ready to paste, in the format
+`Text` is the readable transcript, used by the chat. `With times` is the same transcript cut
+into passages, each with its start and end time (see
+[Timestamped JSON transcript](#timestamped-json-transcript)).
+
+The full path of the text transcript is copied to the clipboard, ready to paste, in the format
 of where the program runs: `C:\Users\...` in PowerShell/cmd on Windows, `/mnt/c/Users/...`
 in WSL (in the Windows clipboard, shared with Windows Terminal), `/home/...` on Linux or
 macOS (`pbcopy`, `wl-copy`, `xclip` or `xsel`).
@@ -241,6 +246,36 @@ audio track (e.g. `fr-FR`). Whisper's own detection only listens to the beginnin
 English word or music at the start of a French video made it transcribe the whole video
 translated into English. For a local mp3, the language is detected on several pieces of the
 audio.
+
+### Timestamped JSON transcript
+
+Each transcription is also saved as a timestamped JSON source, the reference version of the
+transcript (see [docs/DATA_LINEAGE.md](docs/DATA_LINEAGE.md)):
+
+```
+work/sources/youtube/<Title>_<video_id>/<date>_<model>_<version>.json
+```
+
+for example `Le_SECRET_le_MIEUX_GARDE_de_nos_ELITES_9ePdrj096XY/2026-11-14_large-v3-turbo_b7e557.json`:
+the folder is the video (its title without accents, then its YouTube id), each file one
+transcription (its date, the Whisper model, then a short fingerprint of the text). If the
+video is renamed on YouTube, its folder is kept, found again by the id.
+
+It holds the video's id, title, channel, publication date, language, playlists (with the
+video's position), the transcription model and settings, and every segment with its start
+and end time. Transcribing the same video again with the same settings changes nothing;
+another model or other settings give a new version next to the previous one. A local mp3 is
+saved under `work/sources/files/`, identified by its content.
+
+Other programs can use this file to work with the video's timing: quote a passage with
+its time, link to that moment in the video (`&t=<seconds>`), make subtitles, search a
+playlist by word and time, or check a quotation against what was actually said. For
+example, [ArchivTrace](https://github.com/fdepierre/archivtrace) imports these files to
+extract claims from the videos and find each citation back at its time in the video:
+
+```bash
+python import_sources.py --input ../YouTube2Post/work/sources/youtube --query "Néandertal"
+```
 
 ## Configuration
 
@@ -372,6 +407,7 @@ YouTube2Post/
 │   ├── directory_manager.py    # File and directory management
 │   ├── ollama_manager.py       # AI model interaction
 │   ├── progress.py             # Spinner and live progress line
+│   ├── source_export.py        # Timestamped JSON source of each transcription
 │   ├── sysinfo.py              # Hardware and load details (verbose mode)
 │   ├── transcriber.py          # Audio transcription
 │   ├── ui.py                   # Colours and numbered steps

@@ -33,6 +33,8 @@ from modules.config_manager import ConfigManager
 from modules.directory_manager import DirectoryManager
 from modules.youtube_downloader import YouTubeDownloader, has_video, playlist_id
 from modules.transcriber import Transcriber, transcript_path
+from modules.source_export import (file_source, transcription_settings, write_source,
+                                   youtube_source)
 from modules.ollama_manager import OllamaManager
 from modules.clipboard import youtube_url_from_clipboard, write_clipboard
 from modules import ui
@@ -252,7 +254,14 @@ def run(args):
             steps.next()
             transcript_file = transcriber.create_transcript_content(audio_file, json_file, source)
             steps.done(_transcribed(transcriber))
-            ui.saved_file("Transcript saved to:", transcript_file)
+            settings = transcription_settings(transcriber)
+            if local_mp3:
+                with open(json_file, encoding='utf-8') as f:
+                    exported = file_source(audio_file, json.load(f), transcriber.segments, settings)
+            else:
+                exported = youtube_source(youtube_downloader.info, transcriber.segments, settings)
+            source_file = write_source(work_dir, exported)
+            ui.saved_file("Transcript saved to:", transcript_file, timed=source_file)
             _copy_path(transcript_file)
         # Free the Whisper model's GPU memory for the Ollama model
         del transcriber
@@ -276,7 +285,7 @@ def _copy_path(path):
     """Copy the full path to the clipboard, in the format of where the program
     runs (C:\\... on Windows, /mnt/c/... in WSL), ready to paste."""
     if write_clipboard(os.path.abspath(path)):
-        ui.note("Full path copied to the clipboard")
+        ui.note("Text file path copied to the clipboard")
 
 
 def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir, tmp_dir, chat):
@@ -310,6 +319,10 @@ def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir
             steps.done(f"{ui.style(real_title, 'bold')}, {downloader.downloaded_size(audio_file)}")
             title, content = transcriber.transcript(audio_file, json_file, video['url'])
             steps.done(_transcribed(transcriber))
+            source_file = write_source(work_dir, youtube_source(
+                downloader.info, transcriber.segments, transcription_settings(transcriber),
+                playlist=playlist, position=number))
+            ui.note(f"With times: {os.path.relpath(source_file, work_dir)}")
         except Exception as e:
             steps.failed(f"Skipped: {e}")
             failed.append((number, video['title']))

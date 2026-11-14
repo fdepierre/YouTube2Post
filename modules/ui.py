@@ -64,12 +64,20 @@ def success(text):
     print(style(text, 'bold', 'green'))
 
 
-def saved_file(title, path):
-    """Print where a file was saved, directory and file name on separate lines."""
+def saved_file(title, path, timed=None):
+    """
+    Print where a file was saved, directory and file name on separate lines.
+    With ``timed``, also the timestamped JSON version, relative to the same
+    directory.
+    """
     directory, name = os.path.split(os.path.abspath(path))
+    labels = ('Dir:', 'Text:', 'With times:') if timed else ('Dir:', 'File:')
+    width = max(len(label) for label in labels)
     print(f"\n{style(title, 'bold', 'green')}")
-    print(f"  {style('Dir: ', 'dim')} {directory}{os.sep}")
-    print(f"  {style('File:', 'dim')} {style(name, 'bold')}")
+    print(f"  {style(labels[0].ljust(width), 'dim')} {directory}{os.sep}")
+    print(f"  {style(labels[1].ljust(width), 'dim')} {style(name, 'bold')}")
+    if timed:
+        print(f"  {style(labels[2], 'dim')} {os.path.relpath(timed, directory)}")
 
 
 def saved_files(title, paths):

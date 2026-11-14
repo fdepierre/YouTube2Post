@@ -52,6 +52,16 @@ class TestSavedFile(unittest.TestCase):
                                          '  Dir:  /data/work/\n'
                                          '  File: My_video_transcript.txt\n')
 
+    def test_text_and_timed_versions(self):
+        out = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True), patch.object(sys, 'stdout', out):
+            ui.saved_file('Transcript saved to:', '/data/work/My_video_transcript.txt',
+                          timed='/data/work/sources/youtube/abc/transcript-123.json')
+        self.assertEqual(out.getvalue(), '\nTranscript saved to:\n'
+                                         '  Dir:        /data/work/\n'
+                                         '  Text:       My_video_transcript.txt\n'
+                                         '  With times: sources/youtube/abc/transcript-123.json\n')
+
 
 class TestDetail(unittest.TestCase):
     def test_only_in_verbose_mode(self):

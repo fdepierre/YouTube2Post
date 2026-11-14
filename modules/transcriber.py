@@ -144,6 +144,8 @@ class Transcriber:
         self.work_directory = work_directory
         # Duration (s) and language of the last transcribed audio
         self.audio_duration, self.language, self.language_given = 0, None, False
+        # Timestamped segments of the last transcription: (start s, end s, text)
+        self.segments = []
         # Use the GPU only if a one-time test proved it works; CPU otherwise
         device, compute_type = select_device()
         try:
@@ -241,11 +243,12 @@ class Transcriber:
                 line += f"  remaining ~{ui.clock(left)}" if left >= 1 else "  finishing..."
             return line
 
-        texts = []
+        texts, segments_kept = [], []
         started = time.monotonic()
         with Spinner(progress) as spinner, LoadMonitor() as load:
             for segment in segments:
                 texts.append(segment.text)
+                segments_kept.append((segment.start, segment.end, segment.text))
                 elapsed = time.monotonic() - started
                 # The segments of a batch arrive together: a gap starts a new batch
                 if state['batch_at'] is None or elapsed - state['last'] > 0.5:
@@ -260,6 +263,7 @@ class Transcriber:
         if ui.verbose:
             self._transcription_details(info, duration, len(texts), time.monotonic() - started)
             load.report()
+        self.segments = segments_kept
         return " ".join(texts)
 
     def _transcription_details(self, info, duration, segments, took):
