@@ -37,10 +37,6 @@ class TestDeviceSelector(unittest.TestCase):
             self.assertEqual(ds.select_device(), ds.CUDA)
             probe.assert_called_once()  # second call uses the cache
 
-    def test_gpu_failure_selects_cpu(self):
-        with patch.object(ds, "gpu_test", return_value=(False, "no CUDA GPU found")):
-            self.assertEqual(ds.select_device(), ds.CPU)
-
     def test_cache_from_other_environment_is_ignored(self):
         ds.save_result("cuda")
         with patch.object(ds, "_fingerprint", return_value={"host": "other", "python": "x", "ctranslate2": "0"}), \
@@ -59,10 +55,10 @@ class TestDeviceSelector(unittest.TestCase):
             self.assertEqual(ds.select_device(), ds.CPU)
         self.assertFalse(os.path.exists(self.cache))
 
-    def test_failure_reason_is_shown(self):
+    def test_gpu_failure_selects_cpu_and_shows_why(self):
         with patch.object(ds, "gpu_test", return_value=(False, "cublas64_12.dll not found")), \
              patch("builtins.print") as printed:
-            ds.select_device()
+            self.assertEqual(ds.select_device(), ds.CPU)
         self.assertIn("cublas64_12.dll not found", printed.call_args.args[0])
 
     def test_installing_cuda_libraries_triggers_a_new_test(self):

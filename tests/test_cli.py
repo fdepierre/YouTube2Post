@@ -102,29 +102,26 @@ class TestArguments(CliTestCase):
 
 
 class TestTranscribeLocalMp3(CliTestCase):
-    def test_transcribe(self):
-        code, out = self.run_cli('-t', TEST_MP3)
-        self.assertEqual(code, 0, out)
-        self.assertIn('[1/2] Loading the transcription model', out)
-        self.assertIn('[2/2] Transcribing the audio', out)
-        self.assertIn('of audio transcribed (en)', out)
-        path = self.assert_transcript(out)
-        with open(path, encoding='utf-8') as f:
-            self.assertIn(TEST_MP3, f.read())  # the source, in the header
-
-    def test_verbose(self):
-        code, out = self.run_cli('-v', '-t', TEST_MP3)
-        self.assertEqual(code, 0, out)
-        for line in ('System', 'CPU:', 'RAM:', 'Model files', 'Language en detected',
-                     'segments, batches of 16'):
-            self.assertIn(line, out)
-        self.assert_transcript(out)
-
     def test_file_typed_when_clipboard_has_no_url(self):
         # No clipboard tool on the PATH: the program asks for the input
         code, out = self.run_cli('-t', stdin=TEST_MP3 + '\n', env={'PATH': ''})
         self.assertEqual(code, 0, out)
         self.assertIn('No YouTube URL in the clipboard', out)
+        self.assertIn('[1/2] Loading the transcription model', out)
+        self.assertIn('[2/2] Transcribing the audio', out)
+        self.assertIn('of audio transcribed (en)', out)
+        self.assertNotIn('System', out)  # no details without -v
+        path = self.assert_transcript(out)
+        with open(path, encoding='utf-8') as f:
+            self.assertIn(TEST_MP3, f.read())  # the source, in the header
+
+    def test_verbose_with_file_argument(self):
+        code, out = self.run_cli('-v', '-t', TEST_MP3)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn('No YouTube URL in the clipboard', out)
+        for line in ('System', 'CPU:', 'RAM:', 'GPU:', 'Model files', 'Language en detected',
+                     'segments, batches of 16'):
+            self.assertIn(line, out)
         self.assert_transcript(out)
 
     def test_nothing_typed(self):

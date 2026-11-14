@@ -21,13 +21,6 @@ class TestGpuStatus(unittest.TestCase):
             self.assertIsNone(sysinfo.gpu_status())
 
 
-class TestSystemDetails(unittest.TestCase):
-    def test_lines_on_this_computer(self):
-        lines = sysinfo.system_details()
-        self.assertTrue(lines[1].startswith('CPU: '))
-        self.assertTrue(any(l.startswith('GPU: ') for l in lines))
-
-
 class TestLoadMonitor(unittest.TestCase):
     def test_disabled_without_verbose(self):
         with patch.object(ui, 'verbose', False):

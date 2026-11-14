@@ -38,8 +38,9 @@ class TestSteps(unittest.TestCase):
             steps.done('7.1 MB')
         self.assertTrue(out.getvalue().endswith('  ✓ 7.1 MB (0s)\n'))
 
-    def test_duration(self):
+    def test_duration_and_clock(self):
         self.assertEqual([ui.duration(s) for s in (3.4, 65, 3723)], ['3s', '1:05', '1:02:03'])
+        self.assertEqual([ui.clock(s) for s in (3.4, 65, 3723)], ['0:03', '1:05', '1:02:03'])
 
 
 class TestSavedFile(unittest.TestCase):
