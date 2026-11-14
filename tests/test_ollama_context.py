@@ -99,7 +99,7 @@ class TestAnswerDetails(unittest.TestCase):
                 manager._answer_details(last, 16384)
         lines = [c.args[0] for c in printed.call_args_list]
         self.assertEqual(lines, ['    · Read 10435 new tokens, wrote 400 tokens at 50.0 tokens/s',
-                                 '    · 100% of the model on the GPU (3.6 GB with a 16384-token context)'])
+                                 '    · Model loaded: 3.6 GB with a 16384-token context, 3.6 GB on the GPU (100%)'])
 
 
 if __name__ == '__main__':

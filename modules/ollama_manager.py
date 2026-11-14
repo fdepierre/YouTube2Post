@@ -19,9 +19,11 @@ from ollama import Client
 try:
     from .progress import Spinner
     from . import ui
+    from .sysinfo import LoadMonitor
 except ImportError:  # imported as a top-level module
     from progress import Spinner
     import ui
+    from sysinfo import LoadMonitor
 
 # Ollama only reads the first few thousand tokens of a prompt by default
 # (num_ctx), so a long transcript would be cut off. The context is sized from
@@ -187,6 +189,11 @@ class OllamaManager:
             details = self.client.show(self.model)
         except Exception:
             return None, False
+        info = getattr(details, 'details', None)
+        if info is not None:
+            ui.detail(f"Model {self.model}: {getattr(info, 'parameter_size', '?')} parameters, "
+                      f"{getattr(info, 'quantization_level', '?')} quantization, "
+                      f"{getattr(info, 'family', '?')} family, {getattr(info, 'format', '?')} format")
         max_context = None
         for key, value in (details.modelinfo or {}).items():
             if key.endswith('.context_length'):
@@ -238,8 +245,10 @@ class OllamaManager:
         last = None
         start = time.monotonic()
         indicator = Spinner(label)
+        # Ollama is another process: only the GPU load is measured
+        load = LoadMonitor(cpu=False)
         try:
-            with indicator:
+            with indicator, load:
                 stream = self.client.chat(
                     model=self.model,
                     messages=chat_history,
@@ -262,6 +271,7 @@ class OllamaManager:
             return None
         print("\n" + ui.style(f"({time.monotonic() - start:.0f}s)", 'dim'))
         self._answer_details(last, num_ctx)
+        load.report()
         print()
         return ''.join(parts)
 
@@ -279,8 +289,10 @@ class OllamaManager:
         try:
             for m in self.client.ps().models:
                 if m.model == self.model and m.size:
-                    ui.detail(f"{m.size_vram / m.size:.0%} of the model on the GPU "
-                              f"({m.size / 1e9:.1f} GB with a {num_ctx}-token context)")
+                    in_ram = m.size - m.size_vram
+                    ui.detail(f"Model loaded: {m.size / 1e9:.1f} GB with a {num_ctx}-token context, "
+                              f"{m.size_vram / 1e9:.1f} GB on the GPU ({m.size_vram / m.size:.0%})"
+                              + (f", {in_ram / 1e9:.1f} GB in RAM, run by the CPU" if in_ram > 0 else ""))
         except Exception:
             pass
 

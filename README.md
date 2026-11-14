@@ -149,10 +149,15 @@ macOS (`pbcopy`, `wl-copy`, `xclip` or `xsel`).
   while downloading (network retries are shown in yellow), position and remaining time
   while transcribing.
 - `-v` / `--verbose` adds the technical details of each step, to understand or investigate:
-  where the CPU/GPU choice comes from, model files and precision; yt-dlp's full log, the
-  audio format and file; detected language and confidence, speech kept after silence
-  removal, speed relative to real time; in the chat, the context size and, after each
-  answer, the tokens read and written, the speed and the share of the model on the GPU.
+  - the computer: OS and context (Windows, WSL, Linux), Python, CPU, RAM (in WSL, the VM's
+    and the Windows host's), GPU with its memory, driver and temperature;
+  - the load during each heavy step: CPU threads busy, GPU usage, memory peak and
+    temperature (sampled with `nvidia-smi`, installed with the NVIDIA driver);
+  - transcription: where the CPU/GPU choice comes from, model size, files and precision,
+    detected language and confidence, speech kept after silence removal, speed;
+  - download: yt-dlp's full log and the audio format;
+  - chat: the Ollama model (parameters, quantization), context size and, after each answer,
+    the tokens read and written, the speed, and how much of the model is on the GPU or in RAM.
 - Colours (step numbers, ✓, warnings in yellow, errors in red) and animations are used only
   in a terminal: redirected to a file, the output is plain text. Set the standard
   `NO_COLOR=1` environment variable to turn colours off.
@@ -285,6 +290,7 @@ YouTube2Post/
 │   ├── directory_manager.py    # File and directory management
 │   ├── ollama_manager.py       # AI model interaction
 │   ├── progress.py             # Spinner and live progress line
+│   ├── sysinfo.py              # Hardware and load details (verbose mode)
 │   ├── transcriber.py          # Audio transcription
 │   ├── ui.py                   # Colours and numbered steps
 │   └── youtube_downloader.py   # YouTube video processing

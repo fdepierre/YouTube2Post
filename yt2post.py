@@ -33,6 +33,7 @@ from modules.transcriber import Transcriber
 from modules.ollama_manager import OllamaManager
 from modules.clipboard import youtube_url_from_clipboard, write_clipboard
 from modules import ui
+from modules import sysinfo
 
 # config.json and its relative directories are relative to this script, so the
 # program can be started from any directory (e.g. through a shell alias).
@@ -137,6 +138,11 @@ def run(args):
     if chat:
         names.append("Chatting about the transcript")
     steps = ui.Steps(names)
+
+    if ui.verbose:
+        print(f"\n{ui.style('System', 'bold')}")
+        for line in sysinfo.system_details():
+            ui.detail(line)
 
     config_manager = ConfigManager(os.path.join(BASE_DIR, 'config.json'))
     tmp_dir = project_path(config_manager.read_config('tmp_directory'))

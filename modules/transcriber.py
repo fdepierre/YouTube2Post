@@ -24,10 +24,12 @@ try:
     from .device_selector import select_device, save_result
     from .progress import Spinner
     from . import ui
+    from .sysinfo import LoadMonitor
 except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
     from device_selector import select_device, save_result
     from progress import Spinner
     import ui
+    from sysinfo import LoadMonitor
 
 
 def _model_is_downloaded(model_name):
@@ -138,14 +140,17 @@ class Transcriber:
         # The first time, the model is downloaded (with Hugging Face's own
         # progress bars); loading it then takes a few seconds: show a spinner.
         model_path = _get_model(self.model_name)
-        with Spinner(f"Loading {self.model_name} on {device.upper()}..."):
+        with Spinner(f"Loading {self.model_name} on {device.upper()}..."), LoadMonitor() as load:
             self.model = WhisperModel(model_path, device=device, compute_type=compute_type)
         if ui.verbose:
             import ctranslate2
-            ui.detail(f"Model files: {model_path}")
+            size = sum(os.path.getsize(os.path.join(root, name))
+                       for root, _, names in os.walk(model_path) for name in names)
+            ui.detail(f"Model files ({size / 1024 ** 3:.2f} GB): {model_path}")
             ui.detail(f"Precision {compute_type}, CTranslate2 {ctranslate2.__version__}"
                       + (f", {ctranslate2.get_cuda_device_count()} CUDA GPU(s)"
-                         if device == 'cuda' else ""))
+                         if device == 'cuda' else f", {os.cpu_count()} CPU threads available"))
+            load.report()
         # Batched inference transcribes several audio chunks at once:
         # measured ~4x faster on GPU and ~2x faster on CPU, with the same output.
         self.pipeline = BatchedInferencePipeline(model=self.model)
@@ -177,7 +182,7 @@ class Transcriber:
 
         texts = []
         started = time.monotonic()
-        with Spinner(progress) as spinner:
+        with Spinner(progress) as spinner, LoadMonitor() as load:
             for segment in segments:
                 texts.append(segment.text)
                 elapsed = time.monotonic() - spinner.start
@@ -187,6 +192,7 @@ class Transcriber:
                     state['eta'], state['at'] = elapsed / done - elapsed, elapsed
         if ui.verbose:
             self._transcription_details(info, duration, len(texts), time.monotonic() - started)
+            load.report()
         return " ".join(texts)
 
     def _transcription_details(self, info, duration, segments, took):
