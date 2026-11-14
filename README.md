@@ -154,7 +154,8 @@ macOS (`pbcopy`, `wl-copy`, `xclip` or `xsel`).
   - the load during each heavy step: CPU threads busy, GPU usage, memory peak and
     temperature (sampled with `nvidia-smi`, installed with the NVIDIA driver);
   - transcription: where the CPU/GPU choice comes from, model size, files and precision,
-    detected language and confidence, speech kept after silence removal, speed;
+    the language (given by YouTube for the audio track, or detected with its confidence),
+    speech kept after silence removal, speed;
   - download: yt-dlp's full log and the audio format;
   - chat: the Ollama server (version, address, where it runs: this computer, inside WSL or
     the Windows host), the API request sent (`think=false`, `num_ctx`), the GPU memory free
@@ -187,7 +188,37 @@ python yt2post.py -f [<YouTube_URL>]
 
 # Any of the above with the detailed log of each step
 python yt2post.py -v -t <YouTube_URL>
+
+# A playlist, without being asked what to do (see Playlists below)
+python yt2post.py -t -p separate <playlist_URL>
 ```
+
+### Playlists
+
+When the link contains a playlist (`...&list=...` or `/playlist?list=...`), the program reads
+it and shows its title, number of videos and total duration, e.g.
+`This link is part of the playlist Préhistoire by Musée de l'Homme: 64 videos, 53:48:49 of audio.`
+Then it asks:
+
+1. For a link to a video in a playlist: **this video only, or the whole playlist?**
+2. For the whole playlist: **one file per video, or one file with all the transcripts?**
+   (the default is one file per video with `-t`, one file with `-f`, whose chat reads them all)
+
+Each video is then a numbered step (`[3/66] Video 2/64: ...`):
+
+- one file per video: `01_<title>_transcript.txt`, `02_...`, numbered in the playlist's
+  order; the directory path is copied to the clipboard;
+- one file: `<playlist title>_playlist_transcript.txt`, each video under a
+  `=== Video 2/64 ===` heading;
+- files are written as each video is done: after a Ctrl+C, the videos already transcribed
+  are kept;
+- a video that cannot be downloaded (private, deleted) is skipped, and listed at the end;
+- each audio file is deleted once transcribed (a long playlist can be gigabytes).
+
+`-p video|separate|combined` answers these questions in advance (for scripts). Without a
+terminal to answer, the defaults are taken. A long playlist takes time: 64 videos (54 h of
+audio) is about 5 GB to download and over an hour of transcription on a GPU, and is far too
+long for the chat model's context: chat about a few videos at a time.
 
 ### Model Selection
 
@@ -202,6 +233,14 @@ models are listed (▲ = already loaded) and you type a number; Enter takes the 
 loaded model, else the most recently installed one).
 
 Type `exit` during the chat to end the session.
+
+### Transcription language
+
+For a YouTube video, the transcription uses the language YouTube gives for the downloaded
+audio track (e.g. `fr-FR`). Whisper's own detection only listens to the beginning: an
+English word or music at the start of a French video made it transcribe the whole video
+translated into English. For a local mp3, the language is detected on several pieces of the
+audio.
 
 ## Configuration
 

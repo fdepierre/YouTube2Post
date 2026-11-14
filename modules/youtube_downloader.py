@@ -8,6 +8,7 @@ The module includes error handling for missing dependencies and download failure
 
 import os
 import shutil
+from urllib.parse import parse_qs, urlparse
 
 from . import ui
 from .progress import Spinner
@@ -112,6 +113,23 @@ def _is_video_error(error_text):
     return any(marker in error_text for marker in _VIDEO_ERRORS)
 
 
+def playlist_id(url):
+    """The playlist in a YouTube URL ('list=...'), or None."""
+    try:
+        values = parse_qs(urlparse(url).query).get('list')
+    except ValueError:
+        return None
+    return values[0] if values else None
+
+
+def has_video(url):
+    """True if the URL points to one video (watch?v=, youtu.be/, shorts/, live/)."""
+    parsed = urlparse(url)
+    if parsed.hostname and parsed.hostname.endswith('youtu.be'):
+        return len(parsed.path.strip('/')) > 0
+    return 'v' in parse_qs(parsed.query) or parsed.path.startswith(('/shorts/', '/live/'))
+
+
 def _parse_yt_dlp_version(version_string):
     parts = []
     for part in version_string.split('.'):
@@ -185,6 +203,9 @@ class YouTubeDownloader:
             ),
             'outtmpl': f'{self.tmp_directory}/%(title)s.%(ext)s',
             'writeinfojson': True,
+            # A video link that is also in a playlist ('watch?v=...&list=...')
+            # downloads that video only: playlists are read by playlist_info()
+            'noplaylist': True,
             # TLS certificates are checked (yt-dlp's default): YouTube's player
             # script is run in Deno/Node to solve its challenges, so it must
             # come from the genuine YouTube. The solver itself comes from the
@@ -220,6 +241,29 @@ class YouTubeDownloader:
             attempt = dict(base)
             attempt['extractor_args'] = {'youtube': {'player_client': clients}}
             yield attempt
+
+    def playlist_info(self, url):
+        """
+        Read the list of videos of the playlist in url, without downloading
+        them. Returns a dict: title, uploader, url, and entries (each with
+        title, url and duration in seconds, or None if unknown).
+        """
+        playlist_url = f"https://www.youtube.com/playlist?list={playlist_id(url)}"
+        opts = self._base_ydl_opts(self._detect_js_runtimes())
+        opts.update(extract_flat='in_playlist', writeinfojson=False, quiet=True,
+                    noprogress=True, logger=_DownloadDisplay(verbose=False))
+        with Spinner("Reading the playlist..."):
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(playlist_url, download=False)
+            except yt_dlp.utils.DownloadError as e:
+                raise Exception(f"Could not read the playlist: {_short_error(e)}") from e
+        entries = [{'title': e.get('title') or e.get('id') or '?',
+                    'url': e.get('url') or f"https://www.youtube.com/watch?v={e.get('id')}",
+                    'duration': e.get('duration')}
+                   for e in (info.get('entries') or []) if e]
+        return {'title': info.get('title') or 'playlist', 'uploader': info.get('uploader'),
+                'url': playlist_url, 'entries': entries}
 
     def downloaded_size(self, audio_file):
         """Return a short summary of a downloaded file: '7.1 MB'."""

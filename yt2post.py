@@ -31,8 +31,8 @@ import argcomplete
 
 from modules.config_manager import ConfigManager
 from modules.directory_manager import DirectoryManager
-from modules.youtube_downloader import YouTubeDownloader
-from modules.transcriber import Transcriber
+from modules.youtube_downloader import YouTubeDownloader, has_video, playlist_id
+from modules.transcriber import Transcriber, transcript_path
 from modules.ollama_manager import OllamaManager
 from modules.clipboard import youtube_url_from_clipboard, write_clipboard
 from modules import ui
@@ -41,6 +41,9 @@ from modules import sysinfo
 # config.json and its relative directories are relative to this script, so the
 # program can be started from any directory (e.g. through a shell alias).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# -p/--playlist: what to do with a link to a playlist
+PLAYLIST_MODES = ('video', 'separate', 'combined')
 
 
 def project_path(path):
@@ -77,6 +80,9 @@ def main():
     parser.add_argument('-f', '--full', help='Download, transcribe, and chat with AI.', action='store_true')
     parser.add_argument('-m', '--model-select', help='Choose the Ollama model from the installed ones (default: the loaded model, or the only installed one)', action='store_true')
     parser.add_argument('-v', '--verbose', help="Show the detailed log of each step (e.g. yt-dlp's)", action='store_true')
+    parser.add_argument('-p', '--playlist', choices=PLAYLIST_MODES,
+                        help='For a link to a playlist, what to transcribe without asking: the linked '
+                             'video only, every video in its own file, or every video in one file')
     parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing. '
                         'With -t or -f, if omitted, the YouTube URL is taken from the clipboard.', nargs='?')
 
@@ -129,28 +135,55 @@ def mp3_metadata_file(mp3_file, tmp_dir):
     return json_file
 
 
+def _total_duration(entries):
+    known = [e['duration'] for e in entries if e.get('duration')]
+    text = ui.clock(sum(known))
+    return text if len(known) == len(entries) else f"at least {text}"
+
+
+def _ask(question, options, default):
+    """Ask a numbered question; without an answer (no terminal), take the default."""
+    print(question)
+    try:
+        index = ui.choose(options, default=default)
+    except EOFError:
+        index = default
+        print(f"\n  (no answer: {options[default]})")
+    return index
+
+
+def choose_playlist_mode(url, playlist, mode, chat):
+    """
+    Return 'video', 'separate' or 'combined' for a link to a playlist: the
+    -p option if given, else the user's answers. A link to a video in a
+    playlist first asks whether to take the whole playlist.
+    """
+    entries = playlist['entries']
+    by = f" by {playlist['uploader']}" if playlist.get('uploader') else ""
+    print(f"\nThis link is part of the playlist {ui.style(playlist['title'], 'bold')}{by}: "
+          f"{len(entries)} videos, {_total_duration(entries)} of audio.")
+    if mode == 'video' and not has_video(url):
+        raise Exception("This link is a playlist, without a video to choose: "
+                        "use -p separate or -p combined")
+    if mode:
+        return mode
+    if has_video(url):
+        whole = _ask("What should be transcribed?",
+                     ["This video only", f"The whole playlist ({len(entries)} videos)"], 0)
+        if not whole:
+            return 'video'
+    # The chat (-f) reads every transcript: one file is the natural choice
+    combined = _ask("How should the transcripts be saved?",
+                    ["One file per video", "One file with all the transcripts"], 1 if chat else 0)
+    return 'combined' if combined else 'separate'
+
+
 def run(args):
     """Run the steps of the chosen mode, numbered as they go: [2/4] ..."""
     transcribe = args.transcribe or args.full
     chat = args.chat or args.full
-    local_mp3 = transcribe and is_local_mp3(args.url_or_input)
-
-    names = []
-    if chat:
-        names.append("Choosing the Ollama model")
-    if transcribe:
-        names.append("Loading the transcription model")
-        if not local_mp3:
-            names.append("Downloading the audio from YouTube")
-        names.append("Transcribing the audio")
-    if chat:
-        names.append("Chatting about the transcript")
-    steps = ui.Steps(names)
-
-    if ui.verbose:
-        print(f"\n{ui.style('System', 'bold')}")
-        for line in sysinfo.system_details():
-            ui.detail(line)
+    source = args.url_or_input
+    local_mp3 = transcribe and is_local_mp3(source)
 
     config_manager = ConfigManager(os.path.join(BASE_DIR, 'config.json'))
     tmp_dir = project_path(config_manager.read_config('tmp_directory'))
@@ -161,38 +194,66 @@ def run(args):
     if transcribe and not local_mp3:
         youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir, verbose=args.verbose)
 
+    # A link to a playlist: decide first what to transcribe, so the user can
+    # then leave during the long steps
+    playlist, mode = None, None
+    if youtube_downloader and playlist_id(source):
+        playlist = youtube_downloader.playlist_info(source)
+        mode = choose_playlist_mode(source, playlist, args.playlist, chat)
+        if mode == 'video':
+            playlist = None
+    videos = playlist['entries'] if playlist else []
+
+    names = []
+    if chat:
+        names.append("Choosing the Ollama model")
+    if transcribe:
+        names.append("Loading the transcription model")
+        if playlist:
+            names += [f"Video {i}/{len(videos)}: {_short(v['title'])}" for i, v in enumerate(videos, 1)]
+        else:
+            if not local_mp3:
+                names.append("Downloading the audio from YouTube")
+            names.append("Transcribing the audio")
+    if chat:
+        names.append("Chatting about the transcript" + ("s" if playlist else ""))
+    steps = ui.Steps(names)
+
+    if ui.verbose:
+        print(f"\n{ui.style('System', 'bold')}")
+        for line in sysinfo.system_details():
+            ui.detail(line)
+
     chat_manager = None
     if chat:
-        # Chosen first, so the user can then leave during the long steps
         steps.next()
         model_name = OllamaManager().choose_model(ask=args.model_select)
         steps.done(f"Ollama model: {ui.style(model_name, 'bold')}")
         chat_manager = OllamaManager(model=model_name)
 
-    transcript_file = args.url_or_input
+    transcript_file = source
     if transcribe:
         steps.next()
         transcriber = Transcriber(work_directory=work_dir, announce=False)
         steps.done(f"{transcriber.model_name} on {transcriber.device.upper()}")
 
-        source = args.url_or_input
-        if local_mp3:
-            audio_file, json_file = source, mp3_metadata_file(source, tmp_dir)
+        if playlist:
+            transcript_file = transcribe_playlist(steps, transcriber, youtube_downloader, playlist,
+                                                  mode, work_dir, tmp_dir, chat)
         else:
-            steps.next(source)
-            audio_file, json_file = youtube_downloader.download_audio(source)
-            title = (youtube_downloader.info or {}).get('title', os.path.basename(audio_file))
-            steps.done(f"{ui.style(title, 'bold')}, {youtube_downloader.downloaded_size(audio_file)}")
+            if local_mp3:
+                audio_file, json_file = source, mp3_metadata_file(source, tmp_dir)
+            else:
+                steps.next(source)
+                audio_file, json_file = youtube_downloader.download_audio(source)
+                title = (youtube_downloader.info or {}).get('title', os.path.basename(audio_file))
+                steps.done(f"{ui.style(title, 'bold')}, {youtube_downloader.downloaded_size(audio_file)}")
 
-        steps.next()
-        transcript_file = transcriber.create_transcript_content(audio_file, json_file, source)
-        steps.done(f"{ui.duration(transcriber.audio_duration)} of audio transcribed"
-                   + (f" ({transcriber.language})" if transcriber.language else ""))
-        ui.saved_file("Transcript saved to:", transcript_file)
-        # The full path, in the format of where the program runs (C:\... on
-        # Windows, /mnt/c/... in WSL), ready to paste
-        if write_clipboard(os.path.abspath(transcript_file)):
-            ui.note("Full path copied to the clipboard")
+            steps.next()
+            transcript_file = transcriber.create_transcript_content(audio_file, json_file, source)
+            steps.done(_transcribed(transcriber))
+            ui.saved_file("Transcript saved to:", transcript_file)
+            _copy_path(transcript_file)
         # Free the Whisper model's GPU memory for the Ollama model
         del transcriber
         gc.collect()
@@ -200,6 +261,87 @@ def run(args):
     if chat:
         steps.next()
         chat_manager.interactive_chat(transcript_file)
+
+
+def _short(title, width=60):
+    return title if len(title) <= width else title[:width - 1] + "…"
+
+
+def _transcribed(transcriber):
+    return (f"{ui.duration(transcriber.audio_duration)} of audio transcribed"
+            + (f" ({transcriber.language})" if transcriber.language else ""))
+
+
+def _copy_path(path):
+    """Copy the full path to the clipboard, in the format of where the program
+    runs (C:\\... on Windows, /mnt/c/... in WSL), ready to paste."""
+    if write_clipboard(os.path.abspath(path)):
+        ui.note("Full path copied to the clipboard")
+
+
+def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir, tmp_dir, chat):
+    """
+    Download and transcribe every video of the playlist, one step each. Files
+    are written as each video is done, so an interruption keeps the videos
+    already transcribed; a video that fails is skipped. Returns the file with
+    every transcript (for the chat), or None.
+    """
+    videos = playlist['entries']
+    # One file with every transcript: the result in 'combined' mode, and
+    # what the chat (-f) reads in 'separate' mode
+    combined = None
+    if mode == 'combined':
+        combined = transcript_path(work_dir, playlist['title'], '_playlist_transcript.txt')
+    elif chat:
+        combined = transcript_path(tmp_dir, playlist['title'], '_playlist_transcript.txt')
+    if combined:
+        with open(combined, 'w', encoding='utf-8') as f:
+            f.write(f"The following text contains the transcripts of the {len(videos)} videos of the "
+                    f"YouTube playlist \"{playlist['title']}\" from {playlist['url']}\n")
+
+    saved, failed = [], []
+    for number, video in enumerate(videos, 1):
+        steps.next()
+        audio_file = None
+        try:
+            audio_file, json_file = downloader.download_audio(video['url'])
+            # The video's own title: the playlist may list a translated one
+            real_title = (downloader.info or {}).get('title') or video['title']
+            steps.done(f"{ui.style(real_title, 'bold')}, {downloader.downloaded_size(audio_file)}")
+            title, content = transcriber.transcript(audio_file, json_file, video['url'])
+            steps.done(_transcribed(transcriber))
+        except Exception as e:
+            steps.failed(f"Skipped: {e}")
+            failed.append((number, video['title']))
+            continue
+        finally:
+            if audio_file and os.path.isfile(audio_file):
+                os.remove(audio_file)  # a playlist can be gigabytes: free the space as it goes
+        if mode == 'separate':
+            # Numbered: the files sort in the playlist's order
+            path = transcript_path(work_dir, f"{number:0{len(str(len(videos)))}d}_{title}")
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            saved.append(path)
+        if combined:
+            with open(combined, 'a', encoding='utf-8') as f:
+                f.write(f"\n\n=== Video {number}/{len(videos)} ===\n\n{content}\n")
+
+    if failed:
+        ui.warn(f"\n{len(failed)} of {len(videos)} videos could not be transcribed:")
+        for number, title in failed:
+            ui.warn(f"  {number}. {title}")
+    if len(failed) == len(videos):
+        raise Exception("No video of the playlist could be transcribed")
+
+    if mode == 'combined':
+        ui.saved_file("All the transcripts saved to:", combined)
+        _copy_path(combined)
+    else:
+        ui.saved_files("Transcripts saved to:", saved)
+        if write_clipboard(os.path.dirname(os.path.abspath(saved[0]))):
+            ui.note("Directory path copied to the clipboard")
+    return combined
 
 
 if __name__ == '__main__':

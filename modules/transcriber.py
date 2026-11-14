@@ -84,6 +84,29 @@ def next_countdown(shown, estimate):
     return min(estimate, shown)
 
 
+def whisper_language(code):
+    """
+    The Whisper language for a language code from YouTube ('fr-FR' -> 'fr'),
+    or None if there is none or Whisper does not know it.
+    """
+    from faster_whisper.tokenizer import _LANGUAGE_CODES
+    base = (code or '').split('-')[0].split('_')[0].lower()
+    return base if base in _LANGUAGE_CODES else None
+
+
+def safe_file_name(title):
+    """
+    A file name safe on every system: letters (accents included), digits, '_'
+    and '-' only, so a title cannot contain a path ('../', 'C:\\').
+    """
+    return re.sub(r'[^\w\-]', '_', title)[:50].strip('_') or 'transcript'
+
+
+def transcript_path(work_directory, title, suffix='_transcript.txt'):
+    """The path of the transcript file for a video or playlist title."""
+    return os.path.join(work_directory, safe_file_name(title) + suffix)
+
+
 class Transcriber:
     """
     A class to handle audio transcription using Faster Whisper.
@@ -120,7 +143,7 @@ class Transcriber:
         self.requested_model = model_name
         self.work_directory = work_directory
         # Duration (s) and language of the last transcribed audio
-        self.audio_duration, self.language = 0, None
+        self.audio_duration, self.language, self.language_given = 0, None, False
         # Use the GPU only if a one-time test proved it works; CPU otherwise
         device, compute_type = select_device()
         try:
@@ -166,10 +189,20 @@ class Transcriber:
         # measured ~4x faster on GPU and ~2x faster on CPU, with the same output.
         self.pipeline = BatchedInferencePipeline(model=self.model)
 
-    def _transcribe_text(self, audio_file):
-        with Spinner("Preparing audio (decoding, speech and language detection)...") as spinner:
-            segments, info = self.pipeline.transcribe(audio_file, batch_size=self.BATCH_SIZE)
+    # Without a known language, it is detected on several 30 s pieces of the
+    # audio, not only the first one: a French video detected as English is
+    # transcribed translated into English
+    DETECTION_SEGMENTS = 3
+
+    def _transcribe_text(self, audio_file, language=None):
+        """Transcribe the audio, in `language` if known (else it is detected)."""
+        task = "speech detection" if language else "speech and language detection"
+        with Spinner(f"Preparing audio (decoding, {task})...") as spinner:
+            segments, info = self.pipeline.transcribe(
+                audio_file, batch_size=self.BATCH_SIZE, language=language,
+                language_detection_segments=self.DETECTION_SEGMENTS)
             spinner.stop(keep=f"  Audio prepared in {ui.clock(time.monotonic() - spinner.start)}")
+        self.language_given = language is not None
         duration = getattr(info, 'duration', 0) or 0
         self.audio_duration, self.language = duration, getattr(info, 'language', None)
         if duration:
@@ -232,7 +265,9 @@ class Transcriber:
     def _transcription_details(self, info, duration, segments, took):
         """Show the language confidence, speech share, segments and speed."""
         probability = getattr(info, 'language_probability', None)
-        if isinstance(probability, (int, float)):
+        if self.language_given:
+            ui.detail(f"Language {self.language} given by YouTube for this audio track")
+        elif isinstance(probability, (int, float)):
             ui.detail(f"Language {self.language} detected with {probability:.0%} confidence")
         speech = getattr(info, 'duration_after_vad', None)
         if duration and isinstance(speech, (int, float)):
@@ -241,18 +276,19 @@ class Transcriber:
         ui.detail(f"{segments} segments, batches of {self.BATCH_SIZE}"
                   + (f", {duration / took:.0f}x faster than real time" if duration and took else ""))
 
-    def transcribe_audio(self, audio_file):
+    def transcribe_audio(self, audio_file, language=None):
         """
         Transcribe an audio file to text using Faster Whisper.
 
         Args:
             audio_file (str): Path to the audio file to transcribe
+            language (str, optional): Whisper language code ('fr'), if known
 
         Returns:
             str: The transcript text
         """
         try:
-            return self._transcribe_text(audio_file)
+            return self._transcribe_text(audio_file, language)
         except Exception as e:
             if self.device == 'cpu':
                 raise
@@ -261,45 +297,41 @@ class Transcriber:
             del self.pipeline, self.model
             self._load('cpu', 'int8')
             print(f"Using device: {self.device} (model: {self.model_name})")
-            return self._transcribe_text(audio_file)
+            return self._transcribe_text(audio_file, language)
 
-    def create_transcript_content(self, audio_file, json_file, youtube_url):
+    def transcript(self, audio_file, json_file, youtube_url):
         """
-        Create a formatted transcript that includes video metadata.
-        
-        Args:
-            audio_file (str): Path to the audio file
-            json_file (str): Path to the JSON file containing video metadata
-            youtube_url (str): URL of the source YouTube video
-            
-        Returns:
-            str: Path to the final transcript file with metadata
+        Transcribe the audio and return (title, text): the transcript preceded
+        by the video's metadata (title, URL, author, description).
         """
-        # Read metadata from JSON file
         with open(json_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            title = data.get('title', 'Unknown Title')
-            author = data.get('uploader', 'Unknown Author')
-            description = data.get('description', 'No Description')
+        title = data.get('title', 'Unknown Title')
+        author = data.get('uploader', 'Unknown Author')
+        description = data.get('description', 'No Description')
 
-        transcript_content = self.transcribe_audio(audio_file)
-
-        # Create the full content with metadata
-        full_content = (
+        # The language YouTube gives for the downloaded audio track is more
+        # reliable than Whisper's detection (a French video with an English
+        # word or music at the start was transcribed translated into English)
+        transcript_content = self.transcribe_audio(audio_file, whisper_language(data.get('language')))
+        return title, (
             f"The following text is the transcript of a YouTube video. The video title is \"{title}\" from {youtube_url}\n"
             f"The author is: {author}\n"
             f"The video description is: {description}\n\n"
             f"The following text is the transcript of the video:\n\n"
             f"{transcript_content}"
         )
-        
-        # A file name safe on every system: letters (accents included), digits,
-        # '_' and '-' only, so the title cannot contain a path ('../', 'C:\\')
-        safe_title = re.sub(r'[^\w\-]', '_', title)[:50].strip('_') or 'transcript'
-        
-        # Write the full content to a new file in the work directory
-        final_transcript_file = os.path.join(self.work_directory, f"{safe_title}_transcript.txt")
-        with open(final_transcript_file, "w", encoding='utf-8') as f:
-            f.write(full_content)
-            
-        return final_transcript_file
+
+    def create_transcript_content(self, audio_file, json_file, youtube_url):
+        """
+        Transcribe the audio and write the transcript, with the video's
+        metadata, to <title>_transcript.txt in the work directory.
+
+        Returns:
+            str: Path to the transcript file
+        """
+        title, content = self.transcript(audio_file, json_file, youtube_url)
+        path = transcript_path(self.work_directory, title)
+        with open(path, "w", encoding='utf-8') as f:
+            f.write(content)
+        return path

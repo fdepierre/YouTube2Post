@@ -25,7 +25,7 @@ _READERS = (
 
 _YOUTUBE_URL = re.compile(
     r'https?://(?:(?:www|m|music)\.)?'
-    r'(?:youtube\.com/(?:watch\?|shorts/|live/)|youtu\.be/)'
+    r'(?:youtube\.com/(?:watch\?|shorts/|live/|playlist\?)|youtu\.be/)'
     r'[^\s"\'<>]+'
 )
 

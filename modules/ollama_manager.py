@@ -214,19 +214,14 @@ class OllamaManager:
                 return installed[0]
 
         print("Installed Ollama models (▲ = already loaded):")
-        for i, model in enumerate(installed, 1):
-            print(f"  {ui.style(str(i), 'bold', 'cyan')}. {model}{' ▲' if model in running else ''}")
-        while True:
-            try:
-                choice = input(f"Model number [Enter = {default}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                raise Exception("No model selected") from None
-            if not choice:
-                return default
-            if choice.isdigit() and 1 <= int(choice) <= len(installed):
-                return installed[int(choice) - 1]
-            print(f"Please enter a number between 1 and {len(installed)}.")
+        try:
+            index = ui.choose([f"{m}{' ▲' if m in running else ''}" for m in installed],
+                              default=installed.index(default), prompt="Model number",
+                              default_label=default)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            raise Exception("No model selected") from None
+        return installed[index]
 
     def model_details(self):
         """Return (maximum context length or None, model supports thinking)."""

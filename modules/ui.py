@@ -72,6 +72,34 @@ def saved_file(title, path):
     print(f"  {style('File:', 'dim')} {style(name, 'bold')}")
 
 
+def saved_files(title, paths):
+    """Print where several files were saved: their directory, then one name per line."""
+    directory = os.path.dirname(os.path.abspath(paths[0]))
+    print(f"\n{style(title, 'bold', 'green')}")
+    print(f"  {style('Dir:  ', 'dim')} {directory}{os.sep}")
+    for i, path in enumerate(paths):
+        label = style('Files:' if i == 0 else '      ', 'dim')
+        print(f"  {label} {style(os.path.basename(path), 'bold')}")
+
+
+def choose(options, default=0, prompt="Choice", default_label=None):
+    """
+    List the options numbered from 1 and return the index the user picks;
+    Enter takes the default. EOFError and KeyboardInterrupt are passed on:
+    the caller decides what a cancelled choice means.
+    """
+    for i, option in enumerate(options, 1):
+        print(f"  {style(str(i), 'bold', 'cyan')}. {option}")
+    label = default_label or str(default + 1)
+    while True:
+        choice = input(f"{prompt} [Enter = {label}]: ").strip()
+        if not choice:
+            return default
+        if choice.isdigit() and 1 <= int(choice) <= len(options):
+            return int(choice) - 1
+        print(f"Please enter a number between 1 and {len(options)}.")
+
+
 # Set from the command line (-v): show the technical details of each step
 verbose = False
 
@@ -156,6 +184,16 @@ class Steps:
               + (f" {style(detail, 'dim')}" if detail else ""))
 
     def done(self, result):
-        """Print the result of the current step with its duration."""
-        took = duration(time.monotonic() - self.started)
+        """
+        Print a result of the current step with its duration. A step may have
+        several results (download, then transcription): each one shows the
+        time since the previous one.
+        """
+        now = time.monotonic()
+        took = duration(now - self.started)
+        self.started = now
         print(f"  {style('✓', 'bold', 'green')} {result} {style(f'({took})', 'dim')}")
+
+    def failed(self, reason):
+        """Print why the current step failed, when the run goes on without it."""
+        print(f"  {style('✖', 'bold', 'red')} {style(reason, 'yellow')}")

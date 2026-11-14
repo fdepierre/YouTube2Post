@@ -143,6 +143,20 @@ class TestTranscribeYouTube(CliTestCase):
         with open(path, encoding='utf-8') as f:
             self.assertIn(SHORT_VIDEO, f.read())
 
+    def test_video_of_a_playlist(self):
+        # A French video whose first seconds Whisper takes for English: the
+        # language given by YouTube keeps the transcript in French
+        url = 'https://www.youtube.com/watch?v=JfoqQJbz8VA&list=PLEnK6o7pdzkdtZJ1FmPqXO6VRu-09pEGv'
+        code, out = self.run_cli('-t', '-p', 'video', url)
+        self.assertEqual(code, 0, out)
+        self.assertIn('This link is part of the playlist', out)
+        self.assertIn('[2/3] Downloading the audio from YouTube', out)
+        self.assertIn('of audio transcribed (fr)', out)
+        files = self.transcripts()
+        self.assertEqual(len(files), 1, out)  # the video only, not the playlist
+        with open(files[0], encoding='utf-8') as f:
+            self.assertIn('Néandertal', f.read())
+
     def test_unavailable_video(self):
         code, out = self.run_cli('-t', 'https://www.youtube.com/watch?v=xxxxxxxxxxx')
         self.assertEqual(code, 1)
