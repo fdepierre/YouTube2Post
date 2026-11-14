@@ -1,13 +1,9 @@
-import os
-import sys
 import time
 import unittest
 from unittest.mock import patch
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../modules')))
-
-import sysinfo
-import ui
+from modules import sysinfo
+from modules import ui
 
 GPU = 'NVIDIA GeForce RTX 2060 with Max-Q Design, 6144, 5240, 621.14, 57.30, 25'
 

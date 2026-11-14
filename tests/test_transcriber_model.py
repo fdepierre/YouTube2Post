@@ -1,12 +1,9 @@
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../modules')))
-
-import transcriber as tr
+from modules import transcriber as tr
 
 
 def _segments(*texts):
@@ -61,9 +58,7 @@ class TestTranscriberModelChoice(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             audio = os.path.join(d, 'a.webm')
             t = tr.Transcriber(work_directory=d)
-            out = t.transcribe_audio(audio)
-            with open(out, encoding='utf-8') as f:
-                self.assertEqual(f.read(), 'hello world')
+            self.assertEqual(t.transcribe_audio(audio), 'hello world')
         self.assertEqual((t.device, t.model_name), ('cpu', 'base'))
         self.m['save'].assert_not_called()  # a one-off failure keeps the GPU for next runs
 

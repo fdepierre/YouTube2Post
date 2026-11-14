@@ -4,9 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../modules')))
-
-import device_selector as ds
+from modules import device_selector as ds
 
 
 class TestDeviceSelector(unittest.TestCase):
@@ -96,12 +94,20 @@ class TestLinuxCudaPreload(unittest.TestCase):
                     raise OSError('libcublasLt.so.12: cannot open shared object file')
                 loaded.append(name)
 
-            with patch.object(ds.sys, 'path', [site]), patch('ctypes.CDLL', side_effect=cdll):
+            with patch.object(ds, '_site_packages', return_value=[site]), patch('ctypes.CDLL', side_effect=cdll):
                 self.assertEqual(ds._preload_linux_cuda_libraries(), 2)
             self.assertEqual(loaded, ['libcublasLt.so.12', 'libcublas.so.12'])  # not libnvblas
 
+    def test_current_directory_is_not_searched(self):
+        # sys.path may hold the current directory: a library planted there is not loaded
+        with tempfile.TemporaryDirectory() as cwd:
+            os.makedirs(os.path.join(cwd, 'nvidia', 'cublas', 'lib'))
+            open(os.path.join(cwd, 'nvidia', 'cublas', 'lib', 'libcublas.so.12'), 'w').close()
+            with patch.object(ds.sys, 'path', ['', cwd]), patch('os.getcwd', return_value=cwd):
+                self.assertNotIn(cwd, ds._site_packages())
+
     def test_nothing_installed(self):
-        with tempfile.TemporaryDirectory() as site, patch.object(ds.sys, 'path', [site]):
+        with tempfile.TemporaryDirectory() as site, patch.object(ds, '_site_packages', return_value=[site]):
             self.assertEqual(ds._preload_linux_cuda_libraries(), 0)
 
 

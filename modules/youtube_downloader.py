@@ -9,12 +9,8 @@ The module includes error handling for missing dependencies and download failure
 import os
 import shutil
 
-try:
-    from . import ui
-    from .progress import Spinner
-except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
-    import ui
-    from progress import Spinner
+from . import ui
+from .progress import Spinner
 
 try:
     import yt_dlp
@@ -189,13 +185,15 @@ class YouTubeDownloader:
             ),
             'outtmpl': f'{self.tmp_directory}/%(title)s.%(ext)s',
             'writeinfojson': True,
-            'nocheckcertificate': True,
+            # TLS certificates are checked (yt-dlp's default): YouTube's player
+            # script is run in Deno/Node to solve its challenges, so it must
+            # come from the genuine YouTube. The solver itself comes from the
+            # yt-dlp-ejs package (installed by yt-dlp[default]), not
+            # downloaded from GitHub at run time.
             'no_warnings': False,
             'quiet': False,
             'retries': 3,
             'extractor_retries': 3,
-            # Allow fetching EJS challenge solvers if yt-dlp-ejs is not installed.
-            'remote_components': ['ejs:github'],
         }
         if js_runtimes:
             opts['js_runtimes'] = js_runtimes

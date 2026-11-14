@@ -1,73 +1,71 @@
 """
 Directory Manager Module
-----------------------
-This module handles the creation and management of working directories for the application.
-It maintains two main directories:
-- A temporary directory for downloaded files and intermediate processing
-- A work directory for final output files
+------------------------
+Creates the two directories of the application:
+- the temporary directory, for the downloaded audio and its metadata, emptied
+  at each run;
+- the work directory, for the transcripts.
 """
 
 import os
 
+# The project directory: the temporary directory must not contain it
+_PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _contains(directory, path):
+    """True if path is directory or inside it."""
+    try:
+        return os.path.commonpath([directory, path]) == directory
+    except ValueError:  # Windows: on different drives
+        return False
+
+
 class DirectoryManager:
     """
-    A class to manage working directories for the application.
-    
-    This class handles the creation and maintenance of temporary and working
-    directories. It ensures that directories exist and manages cleanup of
-    temporary files.
-    
+    Create the temporary and work directories, and empty the temporary one.
+
     Attributes:
-        tmp_directory (str): Path to temporary directory for intermediate files
-        work_directory (str): Path to working directory for final output
+        tmp_directory (str): Directory for downloaded files (emptied at each run)
+        work_directory (str): Directory for the transcripts
     """
 
     def __init__(self, tmp_directory='tmp', work_directory='work'):
-        """
-        Initialize the DirectoryManager with paths for temporary and working directories.
-        
-        Args:
-            tmp_directory (str): Path to temporary directory (default: 'tmp')
-            work_directory (str): Path to working directory (default: 'work')
-        """
         self.tmp_directory = tmp_directory
         self.work_directory = work_directory
+        self._check_tmp_directory()
         self.create_directories()
 
+    def _check_tmp_directory(self):
+        """
+        Refuse a temporary directory whose emptying would delete other files:
+        the work directory, the home directory, a drive root, or a directory
+        holding the program (e.g. a wrong value in config.json).
+        """
+        tmp = os.path.realpath(self.tmp_directory)
+        forbidden = {
+            os.path.realpath(self.work_directory): 'the work directory',
+            os.path.realpath(os.path.expanduser('~')): 'the home directory',
+        }
+        reason = forbidden.get(tmp)
+        if not reason and os.path.dirname(tmp) == tmp:
+            reason = 'a drive root'
+        if not reason and _contains(tmp, _PROJECT_DIR):
+            reason = 'the directory of the program'
+        if reason:
+            raise ValueError(f"The temporary directory {self.tmp_directory} is {reason}: "
+                             "its files would be deleted. Choose another tmp_directory "
+                             "in config.json.")
+
     def create_directories(self):
-        """
-        Create the necessary directories if they don't exist.
-        Also performs cleanup of the temporary directory.
-        """
+        """Create the directories if needed, and empty the temporary one."""
         os.makedirs(self.tmp_directory, exist_ok=True)
         os.makedirs(self.work_directory, exist_ok=True)
         self.clear_tmp_directory()
 
     def clear_tmp_directory(self):
-        """
-        Remove all files from the temporary directory.
-        This helps maintain a clean workspace and prevent conflicts
-        between different processing runs.
-        """
+        """Delete the files of the temporary directory (left by the previous run)."""
         for file in os.listdir(self.tmp_directory):
             file_path = os.path.join(self.tmp_directory, file)
             if os.path.isfile(file_path):
                 os.remove(file_path)
-
-    def get_tmp_directory(self):
-        """
-        Get the path to the temporary directory.
-        
-        Returns:
-            str: Path to the temporary directory
-        """
-        return self.tmp_directory
-
-    def get_work_directory(self):
-        """
-        Get the path to the working directory.
-        
-        Returns:
-            str: Path to the working directory
-        """
-        return self.work_directory

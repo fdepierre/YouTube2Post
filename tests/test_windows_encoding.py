@@ -1,14 +1,11 @@
 import builtins
 import json
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../modules')))
-
-import transcriber as tr
+from modules import transcriber as tr
 
 _real_open = builtins.open
 

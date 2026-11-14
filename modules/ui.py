@@ -107,14 +107,16 @@ def error(text):
     print(style(text, 'bold', 'red'))
 
 
-def duration(seconds):
-    """Format seconds as '3s', '1:05' or '1:02:03' (truncated, like the progress line)."""
-    seconds = int(seconds)
-    if seconds < 60:
-        return f"{seconds}s"
-    h, rest = divmod(seconds, 3600)
+def clock(seconds):
+    """Format seconds as '0:03', '1:05' or '1:02:03' (truncated): positions and times."""
+    h, rest = divmod(int(seconds), 3600)
     m, s = divmod(rest, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def duration(seconds):
+    """Format seconds as '3s', '1:05' or '1:02:03' (truncated): how long a step took."""
+    return f"{int(seconds)}s" if seconds < 60 else clock(seconds)
 
 
 class Steps:

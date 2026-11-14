@@ -11,25 +11,15 @@ import os
 import re
 import time
 
-try:
-    from .device_selector import add_cuda_library_dirs
-except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
-    from device_selector import add_cuda_library_dirs
+from .device_selector import add_cuda_library_dirs, select_device, save_result
+from .progress import Spinner
+from . import ui
+from .sysinfo import LoadMonitor
+
 add_cuda_library_dirs()  # before faster-whisper loads CTranslate2 (GPU libraries from pip)
 
-from faster_whisper import BatchedInferencePipeline, WhisperModel
-from faster_whisper.utils import download_model
-
-try:
-    from .device_selector import select_device, save_result
-    from .progress import Spinner
-    from . import ui
-    from .sysinfo import LoadMonitor
-except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
-    from device_selector import select_device, save_result
-    from progress import Spinner
-    import ui
-    from sysinfo import LoadMonitor
+from faster_whisper import BatchedInferencePipeline, WhisperModel  # noqa: E402
+from faster_whisper.utils import download_model  # noqa: E402
 
 
 def _model_is_downloaded(model_name):
@@ -65,14 +55,6 @@ def _get_model(model_name, attempts=2):
                 raise ModelDownloadError(reason) from e
 
 
-def _hms(seconds):
-    """Format seconds as m:ss or h:mm:ss."""
-    seconds = int(seconds)
-    h, rest = divmod(seconds, 3600)
-    m, s = divmod(rest, 60)
-    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
-
-
 # The remaining time is overestimated on purpose: better to finish early
 # than to show '0:00' while the work goes on.
 ETA_MARGIN = 1.25
@@ -88,7 +70,6 @@ def remaining_estimate(elapsed, done, batch_time=0.0):
         return 0.0
     linear = elapsed / done - elapsed
     return max(linear, batch_time) * ETA_MARGIN
-
 
 
 def next_countdown(shown, estimate):
@@ -188,11 +169,11 @@ class Transcriber:
     def _transcribe_text(self, audio_file):
         with Spinner("Preparing audio (decoding, speech and language detection)...") as spinner:
             segments, info = self.pipeline.transcribe(audio_file, batch_size=self.BATCH_SIZE)
-            spinner.stop(keep=f"  Audio prepared in {_hms(time.monotonic() - spinner.start)}")
+            spinner.stop(keep=f"  Audio prepared in {ui.clock(time.monotonic() - spinner.start)}")
         duration = getattr(info, 'duration', 0) or 0
         self.audio_duration, self.language = duration, getattr(info, 'language', None)
         if duration:
-            print(f"  Transcribing {_hms(duration)} of audio (language: {getattr(info, 'language', '?')})...")
+            print(f"  Transcribing {ui.clock(duration)} of audio (language: {getattr(info, 'language', '?')})...")
 
         # Segments are generated lazily, batch by batch (errors also surface
         # here, not in transcribe()). The spinner redraws the progress line
@@ -216,15 +197,15 @@ class Transcriber:
 
         def progress(elapsed):
             if not duration:
-                return f"elapsed {_hms(elapsed)}"
+                return f"elapsed {ui.clock(elapsed)}"
             update_estimate(elapsed)
             done = min(state['position'] / duration, 1.0)
-            line = f"{done:4.0%}  {_hms(state['position'])} / {_hms(duration)}  elapsed {_hms(elapsed)}"
+            line = f"{done:4.0%}  {ui.clock(state['position'])} / {ui.clock(duration)}  elapsed {ui.clock(elapsed)}"
             if state['eta'] is not None:
                 left = state['eta'] - (elapsed - state['at'])
                 # Longer than estimated (the GPU slows down as it heats up):
                 # no '~0:00' while the work goes on
-                line += f"  remaining ~{_hms(left)}" if left >= 1 else "  finishing..."
+                line += f"  remaining ~{ui.clock(left)}" if left >= 1 else "  finishing..."
             return line
 
         texts = []
@@ -255,7 +236,7 @@ class Transcriber:
             ui.detail(f"Language {self.language} detected with {probability:.0%} confidence")
         speech = getattr(info, 'duration_after_vad', None)
         if duration and isinstance(speech, (int, float)):
-            ui.detail(f"Speech kept after silence removal: {_hms(speech)} of {_hms(duration)} "
+            ui.detail(f"Speech kept after silence removal: {ui.clock(speech)} of {ui.clock(duration)} "
                       f"({speech / duration:.0%})")
         ui.detail(f"{segments} segments, batches of {self.BATCH_SIZE}"
                   + (f", {duration / took:.0f}x faster than real time" if duration and took else ""))
@@ -268,10 +249,10 @@ class Transcriber:
             audio_file (str): Path to the audio file to transcribe
 
         Returns:
-            str: Path to the generated transcript file
+            str: The transcript text
         """
         try:
-            text = self._transcribe_text(audio_file)
+            return self._transcribe_text(audio_file)
         except Exception as e:
             if self.device == 'cpu':
                 raise
@@ -280,13 +261,7 @@ class Transcriber:
             del self.pipeline, self.model
             self._load('cpu', 'int8')
             print(f"Using device: {self.device} (model: {self.model_name})")
-            text = self._transcribe_text(audio_file)
-        transcript_file = f"{audio_file}.txt"
-        
-        # Write the transcript to a file with UTF-8 encoding
-        with open(transcript_file, "w", encoding='utf-8') as f:
-            f.write(text)
-        return transcript_file
+            return self._transcribe_text(audio_file)
 
     def create_transcript_content(self, audio_file, json_file, youtube_url):
         """
@@ -307,12 +282,7 @@ class Transcriber:
             author = data.get('uploader', 'Unknown Author')
             description = data.get('description', 'No Description')
 
-        # Generate the transcript
-        transcript_file = self.transcribe_audio(audio_file)
-
-        # Read the transcript content
-        with open(transcript_file, 'r', encoding='utf-8') as f:
-            transcript_content = f.read()
+        transcript_content = self.transcribe_audio(audio_file)
 
         # Create the full content with metadata
         full_content = (
@@ -323,8 +293,9 @@ class Transcriber:
             f"{transcript_content}"
         )
         
-        # Create a safe filename from the title
-        safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)[:50]
+        # A file name safe on every system: letters (accents included), digits,
+        # '_' and '-' only, so the title cannot contain a path ('../', 'C:\\')
+        safe_title = re.sub(r'[^\w\-]', '_', title)[:50].strip('_') or 'transcript'
         
         # Write the full content to a new file in the work directory
         final_transcript_file = os.path.join(self.work_directory, f"{safe_title}_transcript.txt")

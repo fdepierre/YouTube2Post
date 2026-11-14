@@ -28,13 +28,23 @@ import platform
 import subprocess
 import sys
 
-try:
-    from . import ui
-except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
-    import ui
+from . import ui
 
 # pip packages providing the CUDA libraries used by faster-whisper
 CUDA_LIBRARY_PACKAGES = ("nvidia-cublas-cu12", "nvidia-cudnn-cu12")
+
+
+def _site_packages():
+    """
+    The directories where pip installs packages. Only these are searched for
+    the CUDA libraries: sys.path may also contain the current directory,
+    where a planted library would then be loaded.
+    """
+    import site
+    dirs = list(site.getsitepackages())
+    if site.ENABLE_USER_SITE:
+        dirs.append(site.getusersitepackages())
+    return [d for d in dirs if os.path.isdir(d)]
 
 
 # Linux directories of the pip packages above, under site-packages
@@ -52,7 +62,7 @@ def _preload_linux_cuda_libraries():
     import ctypes
 
     paths = []
-    for site_dir in sys.path:
+    for site_dir in _site_packages():
         for parts in _LINUX_CUDA_LIBRARY_DIRS:
             paths += sorted(glob.glob(os.path.join(site_dir, *parts, "lib*.so.*")))
     # libnvblas is not used, and replaces BLAS functions if loaded globally
@@ -84,7 +94,7 @@ def add_cuda_library_dirs():
         return
     if sys.platform != "win32":
         return
-    for site_dir in sys.path:
+    for site_dir in _site_packages():
         for dll_dir in glob.glob(os.path.join(site_dir, "nvidia", "*", "bin")):
             try:
                 os.add_dll_directory(dll_dir)
@@ -94,16 +104,20 @@ def add_cuda_library_dirs():
             if dll_dir not in os.environ.get("PATH", ""):
                 os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
 
+
 CACHE_FILE = os.path.join(os.path.expanduser("~"), ".cache", "yt2post", "device.json")
 
 CPU = ("cpu", "int8")
 CUDA = ("cuda", "float16")
 
+# The project directory: the probe imports this module from there
+_PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Runs in a child process: exit code 0 means faster-whisper works on the GPU.
 _PROBE_CODE = f"""
 import sys
-sys.path.insert(0, {os.path.dirname(os.path.abspath(__file__))!r})
-from device_selector import add_cuda_library_dirs
+sys.path[0] = {_PROJECT_DIR!r}  # instead of the current directory
+from modules.device_selector import add_cuda_library_dirs
 add_cuda_library_dirs()  # as the main program does
 import numpy as np
 from faster_whisper import WhisperModel
@@ -171,6 +185,7 @@ def gpu_test(timeout=300):
     try:
         result = subprocess.run(
             [sys.executable, "-c", _PROBE_CODE],
+            cwd=_PROJECT_DIR,
             capture_output=True,
             timeout=timeout,
         )
@@ -182,11 +197,6 @@ def gpu_test(timeout=300):
         return True, ""
     lines = result.stderr.decode("utf-8", "replace").strip().splitlines()
     return False, lines[-1] if lines else f"exit code {result.returncode}"
-
-
-def gpu_works(timeout=300):
-    """Return True if faster-whisper can actually transcribe on CUDA."""
-    return gpu_test(timeout)[0]
 
 
 def select_device():

@@ -17,16 +17,10 @@ from urllib.parse import urlparse
 
 from ollama import Client
 
-try:
-    from .progress import Spinner
-    from . import ui
-    from .clipboard import environment
-    from .sysinfo import LoadMonitor, gpu_status, process_running
-except ImportError:  # imported as a top-level module
-    from progress import Spinner
-    import ui
-    from clipboard import environment
-    from sysinfo import LoadMonitor, gpu_status, process_running
+from .progress import Spinner
+from . import ui
+from .clipboard import environment
+from .sysinfo import LoadMonitor, gpu_status, process_running
 
 # Ollama only reads the first few thousand tokens of a prompt by default
 # (num_ctx), so a long transcript would be cut off. The context is sized from
@@ -80,13 +74,15 @@ class OllamaManager:
         client (ollama.Client): Client instance for communicating with the Ollama service.
     """
 
-    def __init__(self, model=None, host='http://localhost:11434'):
+    def __init__(self, model=None, host=None):
         """
         Initialize the OllamaManager with an optional model specification.
         By default, uses the only running model if just one is active.
         Args:
             model (str, optional): Name of the Ollama model to use. If None, auto-select.
-            host (str): Ollama API host URL (default: 'http://localhost:11434').
+            host (str, optional): Ollama API URL; by default the OLLAMA_HOST
+                environment variable, else http://localhost:11434 (as the
+                ollama command does).
         """
         self.model = model
         self.host = host
@@ -97,7 +93,7 @@ class OllamaManager:
         try:
             return str(self.client._client.base_url).rstrip('/')
         except AttributeError:
-            return self.host
+            return self.host or 'http://localhost:11434'
 
     def server_version(self):
         """Return the Ollama server version (GET /api/version), or None."""
@@ -229,22 +225,6 @@ class OllamaManager:
             if choice.isdigit() and 1 <= int(choice) <= len(installed):
                 return installed[int(choice) - 1]
             print(f"Please enter a number between 1 and {len(installed)}.")
-
-    def select_model(self, use_running=False, non_interactive=False):
-        """
-        Select a model (kept for compatibility, see choose_model).
-
-        Args:
-            use_running (bool): Unused; running models are always preferred.
-            non_interactive (bool): Return the default model without asking.
-        """
-        if non_interactive:
-            installed = self.list_available_models()
-            if not installed:
-                raise Exception("No Ollama model is installed")
-            running = [m for m in self.list_running_models() if m in installed]
-            return running[0] if running else installed[0]
-        return self.choose_model(ask=True)
 
     def model_details(self):
         """Return (maximum context length or None, model supports thinking)."""

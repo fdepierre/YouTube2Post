@@ -4,9 +4,7 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../modules')))
-
-import clipboard as cb
+from modules import clipboard as cb
 
 
 class TestFindYoutubeUrl(unittest.TestCase):

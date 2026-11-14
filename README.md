@@ -12,10 +12,10 @@ This project provides a comprehensive tool for processing YouTube videos and eng
 - Engage in interactive chat sessions about video content using `ollama` AI models
 
 ### Advanced Features
-- Runtime model selection from the installed Ollama models
-- Smart handling of model availability and startup
-- Robust error handling and graceful session management
-- Support for multiple exit commands and interrupt handling
+- Choice of the Ollama model among the installed ones (`-m`)
+- Context size computed from the transcript, so the whole video fits in the chat
+- Live progress with a pessimistic remaining time, and a detailed mode (`-v`)
+- Everything runs on your computer: the transcript is only sent to your Ollama server
 
 ## Installation
 
@@ -90,8 +90,8 @@ model, or on an NVIDIA GPU with `large-v3-turbo` after one more command (see
    thumbnail > *Copy link address*.
 2. In the terminal, from any directory, type `yt` (see [the alias](#shortcut-a-yt-command)).
 3. The program prints `Using YouTube URL from clipboard: ...`, downloads and transcribes the
-   video, and ends with the full path of the transcript, e.g.
-   `Transcript saved to: /home/me/YouTube2Post/work/My_video_title_transcript.txt`
+   video, and ends with where the transcript was saved (see [Output](#output)); its full
+   path is also copied to the clipboard.
 
 With `-t` or `-f` and no URL, the program reads the YouTube URL from the clipboard
 (Windows and WSL via PowerShell, macOS `pbpaste`, Linux `wl-paste`/`xclip`/`xsel`).
@@ -179,7 +179,7 @@ python yt2post.py -t <YouTube_URL>
 # Transcribe a local mp3 file (no user prompts, metadata auto-extracted)
 python yt2post.py -t /path/to/audio.mp3
 
-# Chat about an existing transcript
+# Chat about an existing transcript (the file is required)
 python yt2post.py -c <transcript_file>
 
 # Full process: download, transcribe, and chat (URL from the clipboard if omitted)
@@ -214,14 +214,20 @@ The `config.json` file in the program's directory sets where files go:
 }
 ```
 
-- `tmp_directory`: downloaded audio and metadata, emptied at each run
-- `work_directory`: the transcripts (`<video_title>_transcript.txt`)
+- `tmp_directory`: downloaded audio and metadata, emptied at each run. As a safety, the
+  program refuses a directory whose emptying would delete other files: the work directory,
+  the home directory, a drive root, or the program's directory.
+- `work_directory`: the transcripts (`<video_title>_transcript.txt`, with the title reduced
+  to letters, digits, `_` and `-`)
 
 Relative paths are relative to the program's directory, wherever you start it from.
 Absolute paths (or `~/...`) can be used to put the files elsewhere.
 
 ### Ollama Model
 - See [Model Selection](#model-selection) for how the model is chosen
+- The program uses the Ollama server set by the standard `OLLAMA_HOST` environment
+  variable, by default `http://localhost:11434` (in WSL, this also reaches Ollama installed
+  on Windows)
 - Installed models can be listed using `ollama list`, loaded ones using `ollama ps`
 - With `-f`, the Whisper model is freed from GPU memory before the chat starts
 - The whole transcript is sent to the model: the context size (`num_ctx`) is computed from
@@ -237,7 +243,8 @@ Transcription runs on the CPU by default, which works on any computer. On the fi
 the program tests once whether Faster Whisper can use a CUDA GPU (in a separate process,
 so a broken CUDA setup cannot crash it) and remembers the result in
 `~/.cache/yt2post/device.json`. The test runs again automatically on another computer or
-Python environment, or after the CUDA libraries below are installed. If the GPU later fails to start, the program falls back to the CPU.
+Python environment, or after the CUDA libraries below are installed. If the GPU later fails
+to start, the program falls back to the CPU.
 
 The Whisper model depends on the device: `large-v3-turbo` on GPU (much more accurate,
 ~30 s for 18 min of audio, ~4 GB of GPU memory, 1.6 GB one-time download) and `base` on
@@ -253,21 +260,38 @@ python -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
 ```
 
 Nothing else to set up (no PATH or `LD_LIBRARY_PATH`): the program loads them from where pip
-installed them.
-
-The next run tests the GPU again automatically.
+installed them (Python's site-packages directories only, never the current directory). The
+next run tests the GPU again automatically.
 
 - Force a device: `YT2POST_DEVICE=cpu python yt2post.py ...` (or `cuda`)
 - Re-run the test: delete `~/.cache/yt2post/device.json`
 
+## Security and Privacy
+
+- **Local processing:** the audio is transcribed on your computer, and the transcript is
+  only sent to your Ollama server (local by default, see `OLLAMA_HOST`).
+- **Network:** the program contacts YouTube (through `yt-dlp`, with TLS certificates checked)
+  and, the first time, Hugging Face to download the Whisper model. YouTube's player script is
+  run in Deno/Node to solve its challenges, as `yt-dlp` requires; the solver comes from the
+  `yt-dlp-ejs` package installed by pip, nothing is downloaded from GitHub at run time.
+- **Commands:** external tools (`clip.exe`, `xclip`, `nvidia-smi`, `powershell.exe`...) are
+  run without a shell, with fixed arguments: a video title or URL cannot inject a command.
+- **Files:** the transcript file name is made from the video title reduced to safe characters,
+  so a title cannot write outside the work directory; the temporary directory is checked before
+  being emptied (see [Configuration](#configuration)).
+- **The chat model reads untrusted text:** a video's transcript or description could contain
+  instructions aimed at the model (prompt injection). The model has no tools or access to your
+  files, so this can only affect its answers: keep a critical eye on them.
+- **Dependencies** are installed with minimum versions (`>=`), to get security fixes; update
+  them from time to time with `pip install -U -r requirements.txt`.
+
 ## Development
 
-### Testing and Quality Assurance
-
-The project maintains high code quality through comprehensive testing:
+### Testing
 
 ```bash
-# Run all tests
+# Run all tests (a few use the network, YouTube, the GPU or Ollama: the Ollama tests are
+# skipped when it is not running)
 pytest
 
 # Run tests with coverage report
@@ -295,9 +319,9 @@ YouTube2Post/
 │   ├── ui.py                   # Colours and numbered steps
 │   └── youtube_downloader.py   # YouTube video processing
 ├── tests/                      # Test suite
-├── config.json                # Configuration file
-├── requirements.txt           # Python dependencies
-└── yt2post.py                # Main script
+├── config.json                 # Configuration file
+├── requirements.txt            # Python dependencies
+└── yt2post.py                  # Main script
 ```
 
 ### Contributing
@@ -312,7 +336,7 @@ Ensure your code follows the project's style and passes all tests.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 

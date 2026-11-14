@@ -1,12 +1,8 @@
 import io
-import os
-import sys
 import time
 import unittest
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../modules')))
-
-from progress import Spinner
+from modules.progress import Spinner
 
 
 class FakeTTY(io.StringIO):

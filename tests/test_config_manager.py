@@ -6,14 +6,11 @@ It verifies the proper functioning of configuration file reading
 and error handling capabilities.
 """
 
-import sys
 import os
 
-# Add the modules directory to the Python path for importing
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../modules')))
 
 import unittest
-from config_manager import ConfigManager, ConfigError
+from modules.config_manager import ConfigManager, ConfigError
 import json
 import os
 

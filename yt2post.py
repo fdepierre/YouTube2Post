@@ -9,10 +9,12 @@ based on the content. It supports three main operations:
 - Full process: Combines both operations (download, transcribe, and chat)
 
 Usage:
-    python yt2post.py [-t|--transcribe] [-c|--chat] [-f|--full] <youtube_url_or_mp3_file>
+    python yt2post.py (-t | -c | -f) [-m] [-v] [<youtube_url_or_file>]
 
 Arguments:
-    <youtube_url_or_mp3_file>   URL of the YouTube video or path to a local .mp3 file to process.
+    <youtube_url_or_file>   URL of the YouTube video or path to a local .mp3 file to process
+                            (with -t or -f, taken from the clipboard if omitted), or the
+                            transcript file to chat about (-c).
 
 Notes:
 - Only local .mp3 files are supported for direct audio transcription (other formats must be converted to mp3 first).
@@ -22,8 +24,9 @@ Notes:
 import argparse
 import gc
 import json
-import sys
 import os
+import sys
+
 import argcomplete
 
 from modules.config_manager import ConfigManager
@@ -66,9 +69,9 @@ def get_input_from_clipboard_or_prompt():
 def main():
     # Initialize argument parser with program description
     parser = argparse.ArgumentParser(
-    description='Process YouTube videos (via URL) or local .mp3 files: download, transcribe, and chat with AI.\n'
-                'Input can be a YouTube URL or a path to a local .mp3 file. Only .mp3 is supported for local audio.'
-)
+        description='Process YouTube videos (via URL) or local .mp3 files: download, transcribe, and chat with AI.\n'
+                    'Input can be a YouTube URL or a path to a local .mp3 file. Only .mp3 is supported for local audio.'
+    )
     parser.add_argument('-t', '--transcribe', help='Download and transcribe the YouTube video or local mp3 file', action='store_true')
     parser.add_argument('-c', '--chat', help='Chat with AI based on the transcript.', action='store_true')
     parser.add_argument('-f', '--full', help='Download, transcribe, and chat with AI.', action='store_true')
@@ -88,6 +91,11 @@ def main():
     # No URL given: take the YouTube URL from the clipboard, or ask for it
     if (args.transcribe or args.full) and not args.url_or_input:
         args.url_or_input = get_input_from_clipboard_or_prompt()
+    if args.chat and not (args.transcribe or args.full):
+        if not args.url_or_input:
+            parser.error("-c needs the transcript file to chat about")
+        if not os.path.isfile(args.url_or_input):
+            parser.error(f"transcript file not found: {args.url_or_input}")
 
     try:
         run(args)

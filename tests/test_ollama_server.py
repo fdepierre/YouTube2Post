@@ -1,9 +1,7 @@
 import os
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from modules import ollama_manager as om
 from modules import ui
 

@@ -1,12 +1,9 @@
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../modules')))
-
-import youtube_downloader as yd
+from modules import youtube_downloader as yd
 
 DownloadError = yd.yt_dlp.utils.DownloadError
 FORBIDDEN = DownloadError('ERROR: unable to download video data: HTTP Error 403: Forbidden')

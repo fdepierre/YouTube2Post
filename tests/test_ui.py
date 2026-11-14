@@ -4,9 +4,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../modules')))
-
-import ui
+from modules import ui
 
 
 class TestStyle(unittest.TestCase):

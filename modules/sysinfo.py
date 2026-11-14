@@ -15,12 +15,8 @@ import sys
 import threading
 import time
 
-try:
-    from . import ui
-    from .clipboard import environment
-except ImportError:  # imported as a top-level module (tests add modules/ to sys.path)
-    import ui
-    from clipboard import environment
+from . import ui
+from .clipboard import environment
 
 
 def _run(args, timeout=5):
