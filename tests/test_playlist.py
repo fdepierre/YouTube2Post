@@ -93,7 +93,7 @@ class TestTranscribePlaylist(unittest.TestCase):
     def _transcripts(self):
         return sorted(f for f in os.listdir(self.work) if f.endswith('.txt'))
 
-    def _run(self, mode, fail=(), chat=False):
+    def _run(self, mode, fail=(), chat=False, timed=True):
         downloader = MagicMock()
         audio = {}
 
@@ -118,7 +118,7 @@ class TestTranscribePlaylist(unittest.TestCase):
         out = io.StringIO()
         with patch.object(sys, 'stdout', out), patch.object(yt2post, 'write_clipboard', return_value=True):
             result = yt2post.transcribe_playlist(steps, transcriber, downloader, _playlist(), mode,
-                                                 self.work, self.tmp, chat)
+                                                 self.work, self.tmp, chat, timed=timed)
         self.assertFalse(any(os.path.exists(p) for p in audio.values()))  # audio freed as it goes
         return result, out.getvalue()
 
@@ -137,6 +137,12 @@ class TestTranscribePlaylist(unittest.TestCase):
             source = json.load(f)
         self.assertEqual(source['source_id'], 'youtube:vidv2')
         self.assertEqual(source['playlists'], [{'id': 'PLtest', 'title': 'Préhistoire', 'position': 2}])
+
+    def test_no_timestamped_json_by_default(self):
+        _, out = self._run('separate', timed=False)
+        self.assertEqual(len(self._transcripts()), 3)
+        self.assertFalse(os.path.exists(os.path.join(self.work, 'sources')))
+        self.assertNotIn('With times', out)
 
     def test_one_file_with_everything(self):
         result, out = self._run('combined')

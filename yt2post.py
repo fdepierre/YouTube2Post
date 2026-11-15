@@ -9,7 +9,7 @@ based on the content. It supports three main operations:
 - Full process: Combines both operations (download, transcribe, and chat)
 
 Usage:
-    python yt2post.py (-t | -c | -f) [-m] [-v] [<youtube_url_or_file>]
+    python yt2post.py (-t | -c | -f) [-m] [-v] [-p MODE] [-j] [<youtube_url_or_file>]
 
 Arguments:
     <youtube_url_or_file>   URL of the YouTube video or path to a local .mp3 file to process
@@ -85,6 +85,9 @@ def main():
     parser.add_argument('-p', '--playlist', choices=PLAYLIST_MODES,
                         help='For a link to a playlist, what to transcribe without asking: the linked '
                              'video only, every video in its own file, or every video in one file')
+    parser.add_argument('-j', '--json', action='store_true',
+                        help='Also save each transcript as JSON with the start and end time of every '
+                             'passage (work/sources/), for other programs')
     parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing. '
                         'With -t or -f, if omitted, the YouTube URL is taken from the clipboard.', nargs='?')
 
@@ -241,7 +244,7 @@ def run(args):
 
         if playlist:
             transcript_file = transcribe_playlist(steps, transcriber, youtube_downloader, playlist,
-                                                  mode, work_dir, tmp_dir, chat)
+                                                  mode, work_dir, tmp_dir, chat, timed=getattr(args, 'json', False))
         else:
             if local_mp3:
                 audio_file, json_file = source, mp3_metadata_file(source, tmp_dir)
@@ -254,13 +257,15 @@ def run(args):
             steps.next()
             transcript_file = transcriber.create_transcript_content(audio_file, json_file, source)
             steps.done(_transcribed(transcriber))
-            settings = transcription_settings(transcriber)
-            if local_mp3:
-                with open(json_file, encoding='utf-8') as f:
-                    exported = file_source(audio_file, json.load(f), transcriber.segments, settings)
-            else:
-                exported = youtube_source(youtube_downloader.info, transcriber.segments, settings)
-            source_file = write_source(work_dir, exported)
+            source_file = None
+            if getattr(args, 'json', False):
+                settings = transcription_settings(transcriber)
+                if local_mp3:
+                    with open(json_file, encoding='utf-8') as f:
+                        exported = file_source(audio_file, json.load(f), transcriber.segments, settings)
+                else:
+                    exported = youtube_source(youtube_downloader.info, transcriber.segments, settings)
+                source_file = write_source(work_dir, exported)
             ui.saved_file("Transcript saved to:", transcript_file, timed=source_file)
             _copy_path(transcript_file)
         # Free the Whisper model's GPU memory for the Ollama model
@@ -288,12 +293,14 @@ def _copy_path(path):
         ui.note("Text file path copied to the clipboard")
 
 
-def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir, tmp_dir, chat):
+def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir, tmp_dir, chat,
+                        timed=False):
     """
     Download and transcribe every video of the playlist, one step each. Files
     are written as each video is done, so an interruption keeps the videos
-    already transcribed; a video that fails is skipped. Returns the file with
-    every transcript (for the chat), or None.
+    already transcribed; a video that fails is skipped. With ``timed``, each
+    video's timestamped JSON is saved too. Returns the file with every
+    transcript (for the chat), or None.
     """
     videos = playlist['entries']
     # One file with every transcript: the result in 'combined' mode, and
@@ -319,10 +326,11 @@ def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir
             steps.done(f"{ui.style(real_title, 'bold')}, {downloader.downloaded_size(audio_file)}")
             title, content = transcriber.transcript(audio_file, json_file, video['url'])
             steps.done(_transcribed(transcriber))
-            source_file = write_source(work_dir, youtube_source(
-                downloader.info, transcriber.segments, transcription_settings(transcriber),
-                playlist=playlist, position=number))
-            ui.note(f"With times: {os.path.relpath(source_file, work_dir)}")
+            if timed:
+                source_file = write_source(work_dir, youtube_source(
+                    downloader.info, transcriber.segments, transcription_settings(transcriber),
+                    playlist=playlist, position=number))
+                ui.note(f"With times: {os.path.relpath(source_file, work_dir)}")
         except Exception as e:
             steps.failed(f"Skipped: {e}")
             failed.append((number, video['title']))

@@ -122,18 +122,21 @@ class TestTranscribeLocalMp3(CliTestCase):
         path = self.assert_transcript(out)
         with open(path, encoding='utf-8') as f:
             self.assertIn(TEST_MP3, f.read())  # the source, in the header
-        source = self.source_file('files')
-        self.assertEqual(source['source_type'], 'audio_file')
-        self.assertIn('weed', ' '.join(s['text'] for s in source['segments']).lower())
+        # No timestamped JSON without -j
+        self.assertNotIn('With times', out)
+        self.assertFalse(os.path.exists(os.path.join(self.work, 'sources')))
 
-    def test_verbose_with_file_argument(self):
-        code, out = self.run_cli('-v', '-t', TEST_MP3)
+    def test_verbose_with_file_argument_and_json(self):
+        code, out = self.run_cli('-v', '-j', '-t', TEST_MP3)
         self.assertEqual(code, 0, out)
         self.assertNotIn('No YouTube URL in the clipboard', out)
         for line in ('System', 'CPU:', 'RAM:', 'GPU:', 'Model files', 'Language en detected',
-                     'segments, batches of 16'):
+                     'segments, batches of 16', 'With times:'):
             self.assertIn(line, out)
         self.assert_transcript(out)
+        source = self.source_file('files')
+        self.assertEqual(source['source_type'], 'audio_file')
+        self.assertIn('weed', ' '.join(s['text'] for s in source['segments']).lower())
 
     def test_nothing_typed(self):
         code, out = self.run_cli('-t', stdin='\n', env={'PATH': ''})
@@ -158,7 +161,7 @@ class TestTranscribeYouTube(CliTestCase):
         # A French video whose first seconds Whisper takes for English: the
         # language given by YouTube keeps the transcript in French
         url = 'https://www.youtube.com/watch?v=JfoqQJbz8VA&list=PLEnK6o7pdzkdtZJ1FmPqXO6VRu-09pEGv'
-        code, out = self.run_cli('-t', '-p', 'video', url)
+        code, out = self.run_cli('-t', '-j', '-p', 'video', url)
         self.assertEqual(code, 0, out)
         self.assertIn('This link is part of the playlist', out)
         self.assertIn('[2/3] Downloading the audio from YouTube', out)

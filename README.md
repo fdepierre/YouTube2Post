@@ -135,15 +135,10 @@ Each run shows its main steps numbered, then the result of each one:
   ✓ 18:17 of audio transcribed (fr) (26s)
 
 Transcript saved to:
-  Dir:        /path/to/YouTube2Post/work/
-  Text:       Video_title_transcript.txt
-  With times: sources/youtube/Video_title_<video_id>/2026-11-14_large-v3-turbo_b7e557.json
+  Dir:  /path/to/YouTube2Post/work/
+  File: Video_title_transcript.txt
   ✓ Text file path copied to the clipboard
 ```
-
-`Text` is the readable transcript, used by the chat. `With times` is the same transcript cut
-into passages, each with its start and end time (see
-[Timestamped JSON transcript](#timestamped-json-transcript)).
 
 The full path of the text transcript is copied to the clipboard, ready to paste, in the format
 of where the program runs: `C:\Users\...` in PowerShell/cmd on Windows, `/mnt/c/Users/...`
@@ -247,10 +242,26 @@ English word or music at the start of a French video made it transcribe the whol
 translated into English. For a local mp3, the language is detected on several pieces of the
 audio.
 
-### Timestamped JSON transcript
+### Timestamped JSON transcript (`-j`)
 
-Each transcription is also saved as a timestamped JSON source, the reference version of the
-transcript (see [docs/DATA_LINEAGE.md](docs/DATA_LINEAGE.md)):
+With `-j` / `--json`, each transcription is also saved as a timestamped JSON source, the
+reference version of the transcript (see [docs/DATA_LINEAGE.md](docs/DATA_LINEAGE.md)):
+
+```bash
+python yt2post.py -t -j <YouTube_URL>
+```
+
+The end of the transcription then shows both files:
+
+```
+Transcript saved to:
+  Dir:        /path/to/YouTube2Post/work/
+  Text:       Video_title_transcript.txt
+  With times: sources/youtube/Video_title_<video_id>/2026-11-14_large-v3-turbo_b7e557.json
+```
+
+`Text` is the readable transcript, used by the chat. `With times` is the same transcript cut
+into passages, each with its start and end time, stored in:
 
 ```
 work/sources/youtube/<Title>_<video_id>/<date>_<model>_<version>.json

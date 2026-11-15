@@ -12,7 +12,7 @@ authoritative, every other form is derived from it, in one direction.
 
 ```
 YouTube video / playlist, or a local mp3
-        │  download + transcription
+        │  download + transcription (with -j / --json)
         ▼
 work/sources/…/<date>_<model>_<version>.json ← source of truth (machine-produced, not edited)
         ├─► work/<title>_transcript.txt       ← readable view, for the chat (-c / -f)
