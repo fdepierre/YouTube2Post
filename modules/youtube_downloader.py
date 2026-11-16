@@ -258,7 +258,7 @@ class YouTubeDownloader:
                     info = ydl.extract_info(playlist_url, download=False)
             except yt_dlp.utils.DownloadError as e:
                 raise Exception(f"Could not read the playlist: {_short_error(e)}") from e
-        entries = [{'title': e.get('title') or e.get('id') or '?',
+        entries = [{'id': e.get('id'), 'title': e.get('title') or e.get('id') or '?',
                     'url': e.get('url') or f"https://www.youtube.com/watch?v={e.get('id')}",
                     'duration': e.get('duration')}
                    for e in (info.get('entries') or []) if e]

@@ -33,8 +33,8 @@ from modules.config_manager import ConfigManager
 from modules.directory_manager import DirectoryManager
 from modules.youtube_downloader import YouTubeDownloader, has_video, playlist_id
 from modules.transcriber import Transcriber, transcript_path
-from modules.source_export import (file_source, transcription_settings, write_source,
-                                   youtube_source)
+from modules.source_export import (PlaylistRecord, file_source, transcription_settings,
+                                   write_source, youtube_source)
 from modules.ollama_manager import OllamaManager
 from modules.clipboard import youtube_url_from_clipboard, write_clipboard
 from modules import ui
@@ -88,6 +88,11 @@ def main():
     parser.add_argument('-j', '--json', action='store_true',
                         help='Also save each transcript as JSON with the start and end time of every '
                              'passage (work/sources/), for other programs')
+    parser.add_argument('-n', '--max-videos', type=int, metavar='N',
+                        help='For a playlist with -j: transcribe at most N videos not transcribed '
+                             'yet, then stop (run again for the next ones)')
+    parser.add_argument('--redo', action='store_true',
+                        help='For a playlist with -j: transcribe again the videos already done')
     parser.add_argument('url_or_input', help='URL of the YouTube video or input file (mp3 or text) for processing. '
                         'With -t or -f, if omitted, the YouTube URL is taken from the clipboard.', nargs='?')
 
@@ -195,19 +200,40 @@ def run(args):
     work_dir = project_path(config_manager.read_config('work_directory'))
     DirectoryManager(tmp_directory=tmp_dir, work_directory=work_dir)
 
+    timed = getattr(args, 'json', False)
+    max_videos, redo = getattr(args, 'max_videos', None), getattr(args, 'redo', False)
+    if (max_videos is not None or redo) and not timed:
+        raise Exception("-n and --redo need -j: the videos already transcribed are known "
+                        "from their JSON files")
+    if max_videos is not None and max_videos < 1:
+        raise Exception("-n needs a number of videos of at least 1")
+
     youtube_downloader = None
     if transcribe and not local_mp3:
         youtube_downloader = YouTubeDownloader(tmp_directory=tmp_dir, verbose=args.verbose)
 
     # A link to a playlist: decide first what to transcribe, so the user can
     # then leave during the long steps
-    playlist, mode = None, None
+    playlist, mode, linked_playlist = None, None, None
     if youtube_downloader and playlist_id(source):
         playlist = youtube_downloader.playlist_info(source)
         mode = choose_playlist_mode(source, playlist, args.playlist, chat)
         if mode == 'video':
-            playlist = None
+            linked_playlist, playlist = playlist, None
     videos = playlist['entries'] if playlist else []
+    if (max_videos is not None or redo) and not playlist:
+        raise Exception("-n and --redo are for a whole playlist (-p separate or -p combined)")
+    # With -j, the playlist's record tells the videos already transcribed: they are skipped
+    record = PlaylistRecord(work_dir, playlist) if playlist and timed else None
+    todo = record.to_do(max_videos, redo) if record else list(range(1, len(videos) + 1))
+    if record and len(todo) < len(videos):
+        done = sum(record.is_done(p) for p in range(1, len(videos) + 1))
+        print(f"{done} of {len(videos)} videos already transcribed; "
+              f"this run: {len(todo)} video{'s' if len(todo) != 1 else ''}.")
+        if not todo:
+            ui.success("\nEvery video of the playlist is already transcribed (--redo to do them again).")
+            ui.note(f"Playlist record (state of each video): {os.path.relpath(record.path, work_dir)}")
+            return
 
     names = []
     if chat:
@@ -215,7 +241,7 @@ def run(args):
     if transcribe:
         names.append("Loading the transcription model")
         if playlist:
-            names += [f"Video {i}/{len(videos)}: {_short(v['title'])}" for i, v in enumerate(videos, 1)]
+            names += [f"Video {i}/{len(videos)}: {_short(videos[i - 1]['title'])}" for i in todo]
         else:
             if not local_mp3:
                 names.append("Downloading the audio from YouTube")
@@ -244,7 +270,8 @@ def run(args):
 
         if playlist:
             transcript_file = transcribe_playlist(steps, transcriber, youtube_downloader, playlist,
-                                                  mode, work_dir, tmp_dir, chat, timed=getattr(args, 'json', False))
+                                                  mode, work_dir, tmp_dir, chat, timed=timed,
+                                                  record=record, todo=todo)
         else:
             if local_mp3:
                 audio_file, json_file = source, mp3_metadata_file(source, tmp_dir)
@@ -264,8 +291,15 @@ def run(args):
                     with open(json_file, encoding='utf-8') as f:
                         exported = file_source(audio_file, json.load(f), transcriber.segments, settings)
                 else:
-                    exported = youtube_source(youtube_downloader.info, transcriber.segments, settings)
+                    # A video taken alone from a playlist is still one of its videos
+                    in_playlist = PlaylistRecord(work_dir, linked_playlist) if linked_playlist else None
+                    position = in_playlist.position_of(youtube_downloader.info['id']) if in_playlist else None
+                    exported = youtube_source(youtube_downloader.info, transcriber.segments, settings,
+                                              playlist=linked_playlist if position else None,
+                                              position=position)
                 source_file = write_source(work_dir, exported)
+                if not local_mp3 and position:
+                    in_playlist.transcribed(position, source_file, youtube_downloader.info.get('title'))
             ui.saved_file("Transcript saved to:", transcript_file, timed=source_file)
             _copy_path(transcript_file)
         # Free the Whisper model's GPU memory for the Ollama model
@@ -294,12 +328,14 @@ def _copy_path(path):
 
 
 def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir, tmp_dir, chat,
-                        timed=False):
+                        timed=False, record=None, todo=None):
     """
-    Download and transcribe every video of the playlist, one step each. Files
-    are written as each video is done, so an interruption keeps the videos
-    already transcribed; a video that fails is skipped. With ``timed``, each
-    video's timestamped JSON is saved too. Returns the file with every
+    Download and transcribe the videos of the playlist at the positions
+    `todo` (default: with ``timed``, those not done yet; else all), one step
+    each. Files are written as each video is done, so an interruption keeps the
+    videos already transcribed; a video that fails is skipped. With ``timed``, each
+    video's timestamped JSON is saved too, and the state of every video
+    (transcribed, failed, pending) in the playlist's record. Returns the file with every
     transcript (for the chat), or None.
     """
     videos = playlist['entries']
@@ -310,13 +346,20 @@ def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir
         combined = transcript_path(work_dir, playlist['title'], '_playlist_transcript.txt')
     elif chat:
         combined = transcript_path(tmp_dir, playlist['title'], '_playlist_transcript.txt')
-    if combined:
+    if record is None and timed:
+        record = PlaylistRecord(work_dir, playlist)
+    if todo is None:
+        todo = record.to_do() if record else list(range(1, len(videos) + 1))
+    # Videos skipped as already done are in the file of the earlier runs: add to it
+    resumed = len(todo) < len(videos) and combined and os.path.isfile(combined) and mode == 'combined'
+    if combined and not resumed:
         with open(combined, 'w', encoding='utf-8') as f:
             f.write(f"The following text contains the transcripts of the {len(videos)} videos of the "
                     f"YouTube playlist \"{playlist['title']}\" from {playlist['url']}\n")
 
     saved, failed = [], []
-    for number, video in enumerate(videos, 1):
+    for number in todo:
+        video = videos[number - 1]
         steps.next()
         audio_file = None
         try:
@@ -331,8 +374,11 @@ def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir
                     downloader.info, transcriber.segments, transcription_settings(transcriber),
                     playlist=playlist, position=number))
                 ui.note(f"With times: {os.path.relpath(source_file, work_dir)}")
+                record.transcribed(number, source_file, real_title)
         except Exception as e:
             steps.failed(f"Skipped: {e}")
+            if record:
+                record.failed(number, e)
             failed.append((number, video['title']))
             continue
         finally:
@@ -349,10 +395,18 @@ def transcribe_playlist(steps, transcriber, downloader, playlist, mode, work_dir
                 f.write(f"\n\n=== Video {number}/{len(videos)} ===\n\n{content}\n")
 
     if failed:
-        ui.warn(f"\n{len(failed)} of {len(videos)} videos could not be transcribed:")
+        ui.warn(f"\n{len(failed)} of {len(todo)} videos could not be transcribed:")
         for number, title in failed:
             ui.warn(f"  {number}. {title}")
-    if len(failed) == len(videos):
+    if record:
+        ui.note(f"Playlist record (state of each video): {os.path.relpath(record.path, work_dir)}")
+    if record:
+        counts = record.counts()
+        ui.note(f"Playlist: {counts['transcribed']} of {len(videos)} videos transcribed, "
+                f"{counts['failed']} failed, {counts['pending']} not done yet")
+    if not todo:
+        return combined if mode == 'combined' else None  # every video was already done
+    if len(failed) == len(todo):
         raise Exception("No video of the playlist could be transcribed")
 
     if mode == 'combined':

@@ -218,3 +218,126 @@ def write_source(work_dir, source):
         f.write("\n")
     os.replace(tmp, path)  # never a half-written source
     return path
+
+
+# -- Playlist record -------------------------------------------------------
+
+PLAYLIST_SCHEMA = "yt2post-playlist/1"
+
+
+def _entry_video_id(entry):
+    """The id of a playlist entry: given by yt-dlp, else read from its link."""
+    if entry.get("id"):
+        return entry["id"]
+    url = entry.get("url") or ""
+    match = re.search(r"(?:[?&]v=|youtu\.be/|/shorts/)([A-Za-z0-9_-]+)", url)
+    return match.group(1) if match else url
+
+
+class PlaylistRecord:
+    """
+    The state of every video of a playlist, kept in
+    ``<work>/sources/youtube/playlists/<Title>_<playlist_id>.json``
+    ("yt2post-playlist/1"): transcribed (with its source file), failed (with
+    the error) or pending. It lists the whole playlist, so another program
+    can tell the videos not transcribed yet from those that failed. Written
+    again after each video: an interrupted run leaves a true record. A video
+    transcribed by an earlier run keeps its state until it is done again.
+    """
+
+    def __init__(self, work_dir, playlist):
+        self.path = self._path(work_dir, playlist)
+        previous = {}
+        if os.path.exists(self.path):
+            try:
+                with open(self.path, encoding="utf-8") as f:
+                    previous = {v["video_id"]: v for v in json.load(f).get("videos", [])}
+            except (OSError, ValueError, KeyError, TypeError):
+                previous = {}
+        videos = []
+        for position, entry in enumerate(playlist["entries"], 1):
+            video_id = _entry_video_id(entry)
+            known = previous.get(video_id, {})
+            videos.append({
+                "position": position, "video_id": video_id,
+                # Once transcribed, the video's own title is known: the list may give a translation
+                "title": (known.get("title") if known.get("state") == "transcribed" else None)
+                         or entry.get("title") or video_id,
+                "url": entry.get("url"),
+                "state": known.get("state", "pending"), "source": known.get("source"),
+                "error": known.get("error"), "updated_at": known.get("updated_at"),
+            })
+        self.data = {
+            "schema": PLAYLIST_SCHEMA, "playlist_id": playlist.get("id"),
+            "title": playlist.get("title"), "channel": playlist.get("uploader"),
+            "url": playlist.get("url"), "updated_at": _now(), "videos": videos,
+        }
+        self._write()
+
+    @staticmethod
+    def _path(work_dir, playlist):
+        folder = os.path.join(work_dir, "sources", "youtube", "playlists")
+        identifier = readable_name(str(playlist.get("id") or ""), 64)
+        if os.path.isdir(folder):
+            for name in sorted(os.listdir(folder)):
+                if name.endswith(f"_{identifier}.json"):  # the title may have changed
+                    return os.path.join(folder, name)
+        title = readable_name(playlist.get("title") or "")
+        return os.path.join(folder, f"{title}_{identifier}.json" if title else f"{identifier}.json")
+
+    def transcribed(self, position, source_file, title=None):
+        """
+        The video at this position (from 1) is saved in source_file. `title`
+        is the video's own title: the playlist may list a translated one.
+        """
+        source = os.path.relpath(source_file, os.path.dirname(self.path)).replace(os.sep, "/")
+        values = {"state": "transcribed", "source": source, "error": None}
+        if title:
+            values["title"] = title
+        self._set(position, **values)
+
+    def is_done(self, position):
+        """True if the video at this position is transcribed and its source file is there."""
+        video = self.data["videos"][position - 1]
+        return bool(video["state"] == "transcribed" and video.get("source") and os.path.isfile(
+            os.path.join(os.path.dirname(self.path), video["source"])))
+
+    def position_of(self, video_id):
+        """The position (from 1) of a video in the playlist, or None."""
+        for video in self.data["videos"]:
+            if video["video_id"] == video_id:
+                return video["position"]
+        return None
+
+    def to_do(self, max_videos=None, redo=False):
+        """
+        The positions to transcribe on this run: every video not done yet
+        (all of them with `redo`), at most `max_videos` of them.
+        """
+        positions = [v["position"] for v in self.data["videos"]
+                     if redo or not self.is_done(v["position"])]
+        return positions[:max_videos] if max_videos else positions
+
+    def failed(self, position, error):
+        self._set(position, state="failed", error=str(error))
+
+    def _set(self, position, **values):
+        video = self.data["videos"][position - 1]
+        video.update(values, updated_at=_now())
+        self.data["updated_at"] = video["updated_at"]
+        self._write()
+
+    def counts(self):
+        """{'transcribed': n, 'failed': n, 'pending': n}"""
+        counts = {"transcribed": 0, "failed": 0, "pending": 0}
+        for video in self.data["videos"]:
+            counts[video["state"]] = counts.get(video["state"], 0) + 1
+        return counts
+
+    def _write(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=1)
+            f.write("\n")
+        os.replace(tmp, self.path)

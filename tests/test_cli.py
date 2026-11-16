@@ -70,7 +70,8 @@ class CliTestCase(unittest.TestCase):
 
     def source_file(self, kind):
         """The one timestamped JSON source written in work/sources/<kind>/."""
-        paths = glob.glob(os.path.join(self.work, 'sources', kind, '*', '*.json'))
+        paths = [p for p in glob.glob(os.path.join(self.work, 'sources', kind, '*', '*.json'))
+                 if os.path.basename(os.path.dirname(p)) != 'playlists']
         self.assertEqual(len(paths), 1, paths)
         with open(paths[0], encoding='utf-8') as f:
             return json.load(f)
@@ -176,6 +177,14 @@ class TestTranscribeYouTube(CliTestCase):
         starts = [s['start'] for s in source['segments']]
         self.assertEqual(starts, sorted(starts))
         self.assertGreater(source['segments'][-1]['end'], 120)  # a 2:23 video
+        # Taken alone, it is still recorded as a video of its playlist
+        self.assertEqual(source['playlists'][0]['id'], 'PLEnK6o7pdzkdtZJ1FmPqXO6VRu-09pEGv')
+        records = glob.glob(os.path.join(self.work, 'sources', 'youtube', 'playlists', '*.json'))
+        with open(records[0], encoding='utf-8') as f:
+            videos = json.load(f)['videos']
+        done = [v for v in videos if v['state'] == 'transcribed']
+        self.assertEqual([v['video_id'] for v in done], ['JfoqQJbz8VA'])
+        self.assertEqual(done[0]['position'], source['playlists'][0]['position'])
 
     def test_unavailable_video(self):
         code, out = self.run_cli('-t', 'https://www.youtube.com/watch?v=xxxxxxxxxxx')

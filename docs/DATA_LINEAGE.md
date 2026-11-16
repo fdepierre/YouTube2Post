@@ -7,6 +7,7 @@ authoritative, every other form is derived from it, in one direction.
 | Information | Produced by | Authoritative file | Derived forms |
 |---|---|---|---|
 | Transcript: segments with start/end times, video metadata, transcription settings | the program (yt-dlp + faster-whisper) | `work/sources/youtube/<Title>_<video_id>/<date>_<model>_<version>.json` (`yt2post-source/1`) | `work/<title>_transcript.txt`, ArchivTrace notebooks |
+| State of each video of a playlist (transcribed, failed, pending) | the program | `work/sources/youtube/playlists/<Title>_<playlist_id>.json` (`yt2post-playlist/1`) | ArchivTrace status (`import_sources.py --status`) |
 | Readable transcript for the chat | the program | — (a view) | `work/<title>_transcript.txt` |
 | Chat answers | the LLM (Ollama) | not stored | — |
 
@@ -33,3 +34,12 @@ work/sources/…/<date>_<model>_<version>.json ← source of truth (machine-prod
   Programs identify a transcript by `source_id` and `text_version` inside the file.
 - `segments`: `id`, `start`, `end` (seconds), `text`, in time order.
 - The transcription is automatic: its fidelity to the audio is not established.
+
+## The `yt2post-playlist/1` record
+
+- `playlist_id`, `title`, `channel`, `url`, `updated_at`.
+- `videos`: every video of the playlist, in its order: `position`, `video_id`, `title`,
+  `url`, `state` (`transcribed`, `failed`, `pending`), `source` (the transcript JSON,
+  relative to the record), `error`, `updated_at`.
+- Written with `-j` only, again after each video. A video keeps its state from an earlier
+  run until it is done again; the list itself follows the playlist as read on this run.

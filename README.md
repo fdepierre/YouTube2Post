@@ -278,6 +278,25 @@ and end time. Transcribing the same video again with the same settings changes n
 another model or other settings give a new version next to the previous one. A local mp3 is
 saved under `work/sources/files/`, identified by its content.
 
+For a playlist, `-j` also keeps the state of every video in
+`work/sources/youtube/playlists/<Playlist_title>_<playlist_id>.json`: `transcribed` (with
+its JSON file), `failed` (with the error) or `pending` (not done yet, e.g. after a Ctrl+C).
+It is written again after each video and kept from one run to the next, so it tells which
+videos of the playlist are still missing.
+
+With this record, a long playlist is done in several runs:
+
+```bash
+python yt2post.py -t -j -p separate -n 10 <playlist_URL>   # the next 10 videos not done yet
+```
+
+- a video already transcribed (its JSON file is there) is skipped; a video that failed is
+  tried again;
+- `-n N` stops after N videos; run the same command again for the next ones;
+- `--redo` transcribes again the videos already done (e.g. after changing the model);
+- with one file for all the transcripts (`-p combined`), the new videos are added to it;
+- a video transcribed alone from a playlist link (`-p video`) is recorded as done too.
+
 Other programs can use this file to work with the video's timing: quote a passage with
 its time, link to that moment in the video (`&t=<seconds>`), make subtitles, search a
 playlist by word and time, or check a quotation against what was actually said. For
@@ -286,6 +305,7 @@ extract claims from the videos and find each citation back at its time in the vi
 
 ```bash
 python import_sources.py --input ../YouTube2Post/work/sources/youtube --query "Néandertal"
+python import_sources.py --input ../YouTube2Post/work/sources/youtube/playlists/Prehistoire_PL....json
 ```
 
 ## Configuration

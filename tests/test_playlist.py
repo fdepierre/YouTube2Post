@@ -93,7 +93,7 @@ class TestTranscribePlaylist(unittest.TestCase):
     def _transcripts(self):
         return sorted(f for f in os.listdir(self.work) if f.endswith('.txt'))
 
-    def _run(self, mode, fail=(), chat=False, timed=True):
+    def _run(self, mode, fail=(), chat=False, timed=True, todo=None):
         downloader = MagicMock()
         audio = {}
 
@@ -118,7 +118,8 @@ class TestTranscribePlaylist(unittest.TestCase):
         out = io.StringIO()
         with patch.object(sys, 'stdout', out), patch.object(yt2post, 'write_clipboard', return_value=True):
             result = yt2post.transcribe_playlist(steps, transcriber, downloader, _playlist(), mode,
-                                                 self.work, self.tmp, chat, timed=timed)
+                                                 self.work, self.tmp, chat, timed=timed, todo=todo)
+        self.downloaded = [c.args[0][-2:] for c in downloader.download_audio.call_args_list]
         self.assertFalse(any(os.path.exists(p) for p in audio.values()))  # audio freed as it goes
         return result, out.getvalue()
 
@@ -131,12 +132,89 @@ class TestTranscribePlaylist(unittest.TestCase):
         self.assertIn('Directory path copied', out)
         self.assertIn('Real v2', out)  # the video's own title after its download
         # One timestamped source per video, with its place in the playlist
-        sources = sorted(glob.glob(os.path.join(self.work, 'sources', 'youtube', '*', '*.json')))
+        sources = sorted(glob.glob(os.path.join(self.work, 'sources', 'youtube', '*_v*', '*.json')))
         self.assertEqual(len(sources), 3)
         with open(sources[1], encoding='utf-8') as f:
             source = json.load(f)
         self.assertEqual(source['source_id'], 'youtube:vidv2')
         self.assertEqual(source['playlists'], [{'id': 'PLtest', 'title': 'Préhistoire', 'position': 2}])
+
+    def _record(self):
+        found = glob.glob(os.path.join(self.work, 'sources', 'youtube', 'playlists', '*.json'))
+        self.assertEqual([os.path.basename(f) for f in found], ['Prehistoire_PLtest.json'])
+        with open(found[0], encoding='utf-8') as f:
+            return json.load(f)
+
+    def test_playlist_record_gives_the_state_of_each_video(self):
+        _, out = self._run('separate', fail={'https://youtu.be/v2'})
+        record = self._record()
+        self.assertEqual(record['schema'], 'yt2post-playlist/1')
+        self.assertEqual((record['playlist_id'], record['title']), ('PLtest', 'Préhistoire'))
+        videos = record['videos']
+        self.assertEqual([(v['position'], v['video_id'], v['state']) for v in videos],
+                         [(1, 'v1', 'transcribed'), (2, 'v2', 'failed'), (3, 'v3', 'transcribed')])
+        self.assertEqual(videos[1]['error'], 'Video unavailable')
+        # The source file, relative to the record, so the folder can be moved
+        source = os.path.join(self.work, 'sources', 'youtube', 'playlists', videos[0]['source'])
+        with open(source, encoding='utf-8') as f:
+            self.assertEqual(json.load(f)['source_id'], 'youtube:vidv1')
+        self.assertIn('Playlist record (state of each video): sources/youtube/playlists/', out)
+
+    def test_playlist_record_is_updated_by_a_later_run(self):
+        self._run('separate', fail={'https://youtu.be/v2'})
+        self._run('separate')
+        self.assertEqual([v['state'] for v in self._record()['videos']], ['transcribed'] * 3)
+        self.assertIsNone(self._record()['videos'][1]['error'])
+
+    def test_interrupted_run_leaves_the_rest_pending(self):
+        from modules.source_export import PlaylistRecord
+        record = PlaylistRecord(self.work, _playlist())
+        record.transcribed(1, os.path.join(self.work, 'sources', 'youtube', 'A_v1', 'x.json'))
+        self.assertEqual(record.counts(), {'transcribed': 1, 'failed': 0, 'pending': 2})
+        again = PlaylistRecord(self.work, _playlist())  # the next run starts from it
+        self.assertEqual(again.data['videos'][0]['source'], '../A_v1/x.json')
+        self.assertEqual(again.counts(), {'transcribed': 1, 'failed': 0, 'pending': 2})
+
+    def test_videos_already_transcribed_are_skipped(self):
+        self._run('separate', fail={'https://youtu.be/v2'})
+        _, out = self._run('separate')
+        self.assertEqual(self.downloaded, ['v2'])  # only the one that failed
+        self.assertEqual(len(self._transcripts()), 3)
+        self.assertIn('Playlist: 3 of 3 videos transcribed, 0 failed, 0 not done yet', out)
+
+    def test_a_deleted_json_is_transcribed_again(self):
+        self._run('separate')
+        source = glob.glob(os.path.join(self.work, 'sources', 'youtube', '*_vidv3', '*.json'))[0]
+        os.remove(source)
+        self._run('separate')
+        self.assertEqual(self.downloaded, ['v3'])
+
+    def test_batches_of_videos(self):
+        from modules.source_export import PlaylistRecord
+        record = PlaylistRecord(self.work, _playlist())
+        self.assertEqual(record.to_do(max_videos=2), [1, 2])
+        _, out = self._run('separate', todo=record.to_do(max_videos=2))
+        self.assertEqual(self.downloaded, ['v1', 'v2'])
+        self.assertIn('Playlist: 2 of 3 videos transcribed, 0 failed, 1 not done yet', out)
+        record = PlaylistRecord(self.work, _playlist())
+        self.assertEqual(record.to_do(max_videos=2), [3])  # the next run goes on
+        self.assertEqual(record.to_do(redo=True), [1, 2, 3])
+        self.assertEqual(record.position_of('v2'), 2)
+
+    def test_record_keeps_the_real_title(self):
+        self._run('separate')
+        self.assertEqual([v['title'] for v in self._record()['videos']],
+                         ['Real v1', 'Real v2', 'Real v3'])  # not the playlist's listing
+        self._run('separate')  # the next run reads the listing again: the real titles stay
+        self.assertEqual(self._record()['videos'][0]['title'], 'Real v1')
+
+    def test_resumed_combined_file_is_added_to(self):
+        from modules.source_export import PlaylistRecord
+        result, _ = self._run('combined', todo=[1, 2])
+        self._run('combined', todo=PlaylistRecord(self.work, _playlist()).to_do())
+        with open(result, encoding='utf-8') as f:
+            text = f.read()
+        self.assertEqual([f'=== Video {i}/3 ===' in text for i in (1, 2, 3)], [True] * 3)
 
     def test_no_timestamped_json_by_default(self):
         _, out = self._run('separate', timed=False)
