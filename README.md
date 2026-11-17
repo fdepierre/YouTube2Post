@@ -308,6 +308,9 @@ python import_sources.py --input ../YouTube2Post/work/sources/youtube --query "N
 python import_sources.py --input ../YouTube2Post/work/sources/youtube/playlists/Prehistoire_PL....json
 ```
 
+What is planned next for the two programs is in ArchivTrace's
+[roadmap](https://github.com/fdepierre/archivtrace/blob/main/docs/ROADMAP.md).
+
 ## Configuration
 
 The `config.json` file in the program's directory sets where files go:
